@@ -1,0 +1,215 @@
+"""เทสต์ HTTP endpoints — mock yt-dlp และ OpenRouter ทั้งหมด ไม่แตะเน็ตจริง"""
+
+import pytest
+from fastapi.testclient import TestClient
+
+from app import ai_chat, downloader
+from app.main import DOWNLOAD_DIR, app
+
+client = TestClient(app)
+
+SAMPLE_INFO = {
+    "title": "รีวิวหูฟัง",
+    "description": "เบสแน่นมาก สั่งที่ shp.ee/6xj9kq #หูฟัง",
+    "uploader": "somchai",
+    "like_count": 84_200,
+    "webpage_url": "https://www.tiktok.com/@somchai/video/1",
+    "extractor_key": "TikTok",
+    "height": 1080,
+}
+
+
+@pytest.fixture(autouse=True)
+def _clear_ai_cache():
+    ai_chat.clear_cache()
+    yield
+    ai_chat.clear_cache()
+
+
+class TestPages:
+    def test_หน้าแรกโหลดได้(self):
+        res = client.get("/")
+        assert res.status_code == 200
+        assert "SocialScoop" in res.text
+        # ต้อง render template จริง ไม่ใช่ปล่อย Jinja tag ค้าง
+        assert "{{" not in res.text
+
+    def test_health(self):
+        res = client.get("/api/health")
+        assert res.status_code == 200
+        assert res.json()["ok"] is True
+
+    def test_ไฟล์_static_เสิร์ฟได้(self):
+        assert client.get("/static/style.css").status_code == 200
+        assert client.get("/static/app.js").status_code == 200
+
+
+class TestDetect:
+    def test_รู้จักแพลตฟอร์ม(self):
+        res = client.get("/api/detect", params={"url": "https://www.tiktok.com/@a/video/1"})
+        assert res.json() == {"platform": "tiktok", "label": "TikTok"}
+
+    def test_ไม่รู้จักแพลตฟอร์ม(self):
+        res = client.get("/api/detect", params={"url": "https://example.com/x"})
+        assert res.json() == {"platform": None, "label": None}
+
+
+class TestFetch:
+    def test_ดึงรายละเอียดสำเร็จ(self, monkeypatch):
+        monkeypatch.setattr(
+            downloader, "fetch_metadata", lambda url: downloader.build_details(SAMPLE_INFO)
+        )
+        res = client.post("/api/fetch", json={"url": "https://www.tiktok.com/@a/video/1"})
+
+        assert res.status_code == 200
+        details = res.json()["details"]
+        assert details["caption"] == SAMPLE_INFO["description"]
+        assert details["shopee_links"] == ["https://shp.ee/6xj9kq"]
+        assert details["hashtags"] == ["#หูฟัง"]
+        assert details["stats"]["like"] == "84.2K"
+
+    def test_ดึงไม่สำเร็จคืน_422_พร้อมข้อความไทย(self, monkeypatch):
+        def boom(url):
+            raise downloader.DownloadError("โพสต์นี้เป็นส่วนตัวหรือต้องล็อกอิน")
+
+        monkeypatch.setattr(downloader, "fetch_metadata", boom)
+        res = client.post("/api/fetch", json={"url": "https://www.instagram.com/p/x/"})
+
+        assert res.status_code == 422
+        assert "ส่วนตัว" in res.json()["detail"]
+
+    def test_url_ว่างถูกปฏิเสธ(self):
+        assert client.post("/api/fetch", json={"url": ""}).status_code == 422
+
+    def test_ไม่มี_field_url(self):
+        assert client.post("/api/fetch", json={}).status_code == 422
+
+
+class TestDownload:
+    def test_ดาวน์โหลดสำเร็จคืนชื่อไฟล์(self, monkeypatch):
+        monkeypatch.setattr(
+            downloader,
+            "download_video",
+            lambda url, out: {
+                "video_path": str(out / "abc.mp4"),
+                "filename": "abc.mp4",
+                "details": downloader.build_details(SAMPLE_INFO),
+            },
+        )
+        res = client.post("/api/download", json={"url": "https://www.tiktok.com/@a/video/1"})
+
+        assert res.status_code == 200
+        assert res.json()["filename"] == "abc.mp4"
+
+    def test_ดาวน์โหลดพลาดคืน_422(self, monkeypatch):
+        def boom(url, out):
+            raise downloader.DownloadError("ไม่พบโพสต์นี้")
+
+        monkeypatch.setattr(downloader, "download_video", boom)
+        res = client.post("/api/download", json={"url": "https://www.tiktok.com/@a/video/1"})
+
+        assert res.status_code == 422
+        assert res.json()["detail"] == "ไม่พบโพสต์นี้"
+
+
+class TestFileServing:
+    def test_ดาวน์โหลดไฟล์ที่มีอยู่จริง(self):
+        DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
+        target = DOWNLOAD_DIR / "pytest_sample.txt"
+        target.write_text("hello", encoding="utf-8")
+        try:
+            res = client.get("/api/file/pytest_sample.txt")
+            assert res.status_code == 200
+            assert res.content == b"hello"
+        finally:
+            target.unlink(missing_ok=True)
+
+    def test_ไฟล์ไม่มีคืน_404(self):
+        assert client.get("/api/file/ไม่มีไฟล์นี้.mp4").status_code == 404
+
+    @pytest.mark.parametrize(
+        "attack",
+        [
+            "..%2F..%2Fsecrets.txt",
+            "..%5C..%5Csecrets.txt",
+            "%2Fetc%2Fpasswd",
+            ".env",
+        ],
+    )
+    def test_กัน_path_traversal(self, attack):
+        # ต้องไม่มีทางหลุดออกนอกโฟลเดอร์ downloads ได้
+        res = client.get(f"/api/file/{attack}")
+        assert res.status_code in (400, 404)
+        assert res.status_code != 200
+
+
+class TestAsk:
+    def test_ถามสำเร็จ(self, monkeypatch):
+        monkeypatch.setattr(ai_chat, "ask_ai", lambda caption, question: "คำตอบจำลอง")
+        res = client.post("/api/ask", json={"caption": "แคปชั่น", "question": "สรุปหน่อย"})
+
+        assert res.status_code == 200
+        assert res.json()["answer"] == "คำตอบจำลอง"
+
+    def test_ไม่มี_api_key_คืนข้อความบอกวิธีแก้(self, monkeypatch):
+        monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+        res = client.post("/api/ask", json={"caption": "แคปชั่น", "question": "สรุปหน่อย"})
+
+        assert res.status_code == 422
+        assert "OPENROUTER_API_KEY" in res.json()["detail"]
+
+    def test_คำถามว่างถูกปฏิเสธ(self):
+        res = client.post("/api/ask", json={"caption": "แคปชั่น", "question": ""})
+        assert res.status_code == 422
+
+
+class TestAiChatUnit:
+    def test_แคชไม่ยิงซ้ำ(self, monkeypatch):
+        monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+        calls = []
+
+        class FakeResponse:
+            status_code = 200
+
+            def raise_for_status(self):
+                pass
+
+            def json(self):
+                return {"choices": [{"message": {"content": "คำตอบ"}}]}
+
+        def fake_post(*args, **kwargs):
+            calls.append(1)
+            return FakeResponse()
+
+        monkeypatch.setattr(ai_chat.requests, "post", fake_post)
+
+        assert ai_chat.ask_ai("แคปชั่นเดิม", "คำถามเดิม") == "คำตอบ"
+        assert ai_chat.ask_ai("แคปชั่นเดิม", "คำถามเดิม") == "คำตอบ"
+        assert len(calls) == 1, "คำถามซ้ำต้องใช้แคช ไม่ยิง API ใหม่"
+
+    def test_api_key_ผิดแจ้งชัดเจน(self, monkeypatch):
+        monkeypatch.setenv("OPENROUTER_API_KEY", "bad-key")
+
+        class Unauthorized:
+            status_code = 401
+
+            def raise_for_status(self):
+                raise AssertionError("ไม่ควรถูกเรียกเมื่อเจอ 401")
+
+            def json(self):
+                return {}
+
+        monkeypatch.setattr(ai_chat.requests, "post", lambda *a, **k: Unauthorized())
+
+        with pytest.raises(ai_chat.AIError, match="API key"):
+            ai_chat.ask_ai("แคปชั่น", "คำถาม")
+
+    def test_แคปชั่นว่างไม่ยิง_api(self, monkeypatch):
+        monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+        monkeypatch.setattr(
+            ai_chat.requests,
+            "post",
+            lambda *a, **k: pytest.fail("ไม่ควรเรียก API เมื่อแคปชั่นว่าง"),
+        )
+        with pytest.raises(ai_chat.AIError):
+            ai_chat.ask_ai("", "คำถาม")

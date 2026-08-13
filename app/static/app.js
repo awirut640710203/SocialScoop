@@ -1,0 +1,503 @@
+/* SocialScoop frontend
+   หมายเหตุ: เนื้อหาจากโพสต์ (แคปชั่น ชื่อ ลิงก์) ถูกใส่ผ่าน textContent เสมอ
+   ไม่ใช่ innerHTML เพื่อไม่ให้ HTML ในแคปชั่นถูกรันเป็นโค้ด */
+
+(function () {
+  "use strict";
+
+  var AI_ENABLED = (window.SOCIALSCOOP || {}).aiEnabled === true;
+
+  var $ = function (id) { return document.getElementById(id); };
+
+  var form = $("fetch-form");
+  var urlInput = $("url-input");
+  var fetchBtn = $("fetch-btn");
+  var chipRow = $("chip-row");
+  var formError = $("form-error");
+  var skeleton = $("skeleton");
+  var resultEl = $("result");
+  var toastEl = $("toast");
+
+  var state = { url: null, details: null, downloading: false };
+  var toastTimer = null;
+
+  /* ---------- ธีม ---------- */
+  var themeToggle = $("theme-toggle");
+  var savedTheme = null;
+  try { savedTheme = localStorage.getItem("socialscoop-theme"); } catch (e) { /* โหมดส่วนตัว */ }
+  if (savedTheme === "dark" || savedTheme === "light") {
+    document.documentElement.setAttribute("data-theme", savedTheme);
+  }
+  themeToggle.addEventListener("click", function () {
+    var current = document.documentElement.getAttribute("data-theme");
+    if (!current) {
+      var prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+      current = prefersDark ? "dark" : "light";
+    }
+    var next = current === "dark" ? "light" : "dark";
+    document.documentElement.setAttribute("data-theme", next);
+    try { localStorage.setItem("socialscoop-theme", next); } catch (e) { /* ไม่เป็นไร */ }
+  });
+
+  /* ---------- ตัวช่วย ---------- */
+  function icon(paths, extraAttrs) {
+    var svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("viewBox", "0 0 24 24");
+    svg.setAttribute("fill", "none");
+    svg.setAttribute("stroke", "currentColor");
+    svg.setAttribute("stroke-width", "1.8");
+    svg.setAttribute("stroke-linecap", "round");
+    svg.setAttribute("stroke-linejoin", "round");
+    svg.setAttribute("aria-hidden", "true");
+    if (extraAttrs) {
+      Object.keys(extraAttrs).forEach(function (k) { svg.setAttribute(k, extraAttrs[k]); });
+    }
+    paths.forEach(function (d) {
+      var p = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      p.setAttribute("d", d);
+      svg.appendChild(p);
+    });
+    return svg;
+  }
+
+  var ICONS = {
+    copy: ["M9 9h9a2 2 0 0 1 2 2v9H9z", "M5 15V5a2 2 0 0 1 2-2h10"],
+    check: ["M20 6 9 17l-5-5"],
+    download: ["M12 3v12", "m7 11 5 5 5-5", "M4 19h16"],
+    bag: ["M6 8h12l-1 12H7L6 8Z", "M9 8V6a3 3 0 0 1 6 0v2"],
+    heart: ["M12 21s-7.2-4.5-9.6-9C.8 8 2.3 4.3 6 4.3c2 0 3.5 1 4 2.4.5-1.4 2-2.4 4-2.4 3.7 0 5.2 3.7 3.6 7.7-2.4 4.5-9.6 9-9.6 9z"],
+    comment: ["M4 4h16v12H8l-4 4V4z"],
+    eye: ["M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z", "M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"]
+  };
+
+  function el(tag, className, text) {
+    var node = document.createElement(tag);
+    if (className) node.className = className;
+    if (text !== undefined && text !== null) node.textContent = text;
+    return node;
+  }
+
+  function showToast(message) {
+    toastEl.textContent = message;
+    toastEl.hidden = false;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { toastEl.hidden = true; }, 2600);
+  }
+
+  function copyText(text, btn, label) {
+    var done = function () {
+      showToast(label || "คัดลอกแล้ว");
+      if (!btn) return;
+      var original = btn.cloneNode(true);
+      btn.classList.add("copied");
+      btn.textContent = "";
+      btn.appendChild(icon(ICONS.check));
+      if (label) btn.appendChild(document.createTextNode("คัดลอกแล้ว"));
+      setTimeout(function () {
+        btn.classList.remove("copied");
+        btn.textContent = "";
+        while (original.firstChild) btn.appendChild(original.firstChild);
+      }, 1400);
+    };
+
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(done, function () { fallbackCopy(text, done); });
+    } else {
+      fallbackCopy(text, done);
+    }
+  }
+
+  // สำรองไว้สำหรับเบราว์เซอร์/หน้าที่ไม่ใช่ HTTPS ซึ่ง Clipboard API ใช้ไม่ได้
+  function fallbackCopy(text, done) {
+    var ta = document.createElement("textarea");
+    ta.value = text;
+    ta.setAttribute("readonly", "");
+    ta.style.position = "fixed";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    var ok = false;
+    try { ok = document.execCommand("copy"); } catch (e) { ok = false; }
+    document.body.removeChild(ta);
+    if (ok) { done(); } else { showToast("คัดลอกไม่สำเร็จ กรุณาคัดลอกเอง"); }
+  }
+
+  function copyButton(text, ariaLabel) {
+    var btn = el("button", "copy-icon-btn");
+    btn.type = "button";
+    btn.setAttribute("aria-label", ariaLabel);
+    btn.appendChild(icon(ICONS.copy));
+    btn.addEventListener("click", function () { copyText(text, btn); });
+    return btn;
+  }
+
+  /* ---------- ตรวจแพลตฟอร์มตอนพิมพ์/วาง ---------- */
+  function hostOf(value) {
+    var raw = (value || "").trim();
+    if (!raw) return "";
+    if (raw.indexOf("//") === -1) raw = "https://" + raw;
+    try { return new URL(raw).hostname.toLowerCase().replace(/^www\./, ""); }
+    catch (e) { return ""; }
+  }
+
+  function detectPlatform(value) {
+    var host = hostOf(value);
+    if (!host) return null;
+    if (host === "tiktok.com" || /\.tiktok\.com$/.test(host)) return "tiktok";
+    if (host === "instagram.com" || /\.instagram\.com$/.test(host)) return "instagram";
+    if (/^(.*\.)?threads\.(net|com)$/.test(host)) return "threads";
+    return null;
+  }
+
+  function updateChips() {
+    var platform = detectPlatform(urlInput.value);
+    Array.prototype.forEach.call(chipRow.querySelectorAll(".chip"), function (chip) {
+      chip.classList.toggle("on", chip.dataset.platform === platform);
+    });
+  }
+  urlInput.addEventListener("input", updateChips);
+
+  /* ---------- เรียก API ---------- */
+  function postJSON(path, body) {
+    return fetch(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    }).then(function (res) {
+      return res.json().catch(function () { return {}; }).then(function (data) {
+        if (!res.ok) {
+          throw new Error(data.detail || ("เกิดข้อผิดพลาด (HTTP " + res.status + ")"));
+        }
+        return data;
+      });
+    });
+  }
+
+  function setError(message) {
+    if (!message) {
+      formError.hidden = true;
+      formError.textContent = "";
+      return;
+    }
+    formError.textContent = message;
+    formError.hidden = false;
+  }
+
+  function setLoading(isLoading) {
+    fetchBtn.disabled = isLoading;
+    fetchBtn.classList.toggle("loading", isLoading);
+    skeleton.hidden = !isLoading;
+    if (isLoading) resultEl.hidden = true;
+  }
+
+  form.addEventListener("submit", function (event) {
+    event.preventDefault();
+    var url = urlInput.value.trim();
+    if (!url) return;
+
+    setError(null);
+    setLoading(true);
+
+    postJSON("/api/fetch", { url: url })
+      .then(function (data) {
+        state.url = data.url;
+        state.details = data.details;
+        renderResult(data.details);
+      })
+      .catch(function (err) {
+        setError(err.message);
+        resultEl.hidden = true;
+      })
+      .finally(function () { setLoading(false); });
+  });
+
+  /* ---------- แสดงผลลัพธ์ ---------- */
+  function detailRow(label, valueNode, copySource, ariaLabel) {
+    var row = el("div", "detail-row");
+    row.appendChild(el("div", "detail-label", label));
+    row.appendChild(valueNode);
+    if (copySource) row.appendChild(copyButton(copySource, ariaLabel));
+    return row;
+  }
+
+  function renderResult(details) {
+    resultEl.textContent = "";
+
+    var grid = el("div", "result-grid");
+
+    // รูปปก — ถ้าโหลดไม่ได้ให้แทนด้วยกล่องข้อความ ไม่ปล่อยรูปแตก
+    if (details.thumbnail) {
+      var img = document.createElement("img");
+      img.className = "thumb";
+      img.src = details.thumbnail;
+      img.alt = "ภาพปกของโพสต์";
+      img.loading = "lazy";
+      img.addEventListener("error", function () {
+        var fb = el("div", "thumb-fallback", "ไม่มีภาพปก");
+        if (img.parentNode) img.parentNode.replaceChild(fb, img);
+      });
+      grid.appendChild(img);
+    } else {
+      grid.appendChild(el("div", "thumb-fallback", "ไม่มีภาพปก"));
+    }
+
+    var meta = el("div");
+
+    if (details.title) meta.appendChild(el("h2", "r-title", details.title));
+
+    var subParts = [];
+    if (details.uploader) subParts.push("@" + String(details.uploader).replace(/^@/, ""));
+    if (details.platform) subParts.push(details.platform);
+    if (details.resolution) subParts.push(details.resolution);
+    if (subParts.length) meta.appendChild(el("p", "r-sub", subParts.join(" · ")));
+
+    meta.appendChild(buildDetailsCard(details));
+    meta.appendChild(buildActionRow(details));
+    meta.appendChild(buildAiPanel(details));
+
+    grid.appendChild(meta);
+    resultEl.appendChild(grid);
+    resultEl.hidden = false;
+  }
+
+  function buildDetailsCard(details) {
+    var card = el("div", "details-card");
+
+    var head = el("div", "details-head");
+    head.appendChild(el("span", "details-title", "รายละเอียดโพสต์"));
+
+    var copyAll = el("button", "copy-all-btn");
+    copyAll.type = "button";
+    copyAll.appendChild(icon(ICONS.copy));
+    copyAll.appendChild(document.createTextNode("คัดลอกทั้งหมด"));
+    copyAll.addEventListener("click", function () {
+      copyText(buildPlainText(details), copyAll, "คัดลอกแล้ว");
+    });
+    head.appendChild(copyAll);
+    card.appendChild(head);
+
+    // แคปชั่น
+    if (details.caption) {
+      var cap = el("div", "detail-value quote", details.caption);
+      card.appendChild(detailRow("แคปชั่น", cap, details.caption, "คัดลอกแคปชั่น"));
+    } else {
+      var empty = el("div", "detail-value hint", "ไม่มีคำบรรยายจากโพสต์นี้");
+      card.appendChild(detailRow("แคปชั่น", empty, null));
+    }
+
+    // ลิงก์ Shopee — แยกแถวละลิงก์ ไฮไลต์ต่างจากแถวอื่น
+    (details.shopee_links || []).forEach(function (link) {
+      var row = el("div", "detail-row affiliate");
+
+      var label = el("div", "detail-label");
+      label.appendChild(icon(ICONS.bag));
+      label.appendChild(document.createTextNode("Shopee"));
+      row.appendChild(label);
+
+      var wrap = el("div", "detail-value");
+      wrap.appendChild(el("div", "detail-value mono", link));
+      wrap.appendChild(el("div", "hint",
+        "เจอในแคปชั่น — คัดลอกไปหาสินค้าตัวจริงบน Shopee แล้วค่อยสร้างลิงก์ affiliate ของคุณเองจากสินค้านั้น"));
+      row.appendChild(wrap);
+
+      row.appendChild(copyButton(link, "คัดลอกลิงก์ Shopee"));
+      card.appendChild(row);
+    });
+
+    // แฮชแท็ก
+    if (details.hashtags && details.hashtags.length) {
+      var chips = el("div", "tag-chips");
+      details.hashtags.forEach(function (tag) { chips.appendChild(el("span", "tag-chip", tag)); });
+      card.appendChild(detailRow("แฮชแท็ก", chips, details.hashtags.join(" "), "คัดลอกแฮชแท็ก"));
+    }
+
+    // สถิติ — ซ่อนทั้งแถวถ้าไม่มีข้อมูลเลย ไม่โชว์ 0 หลอกผู้ใช้
+    var stats = details.stats || {};
+    var statDefs = [
+      { key: "like", icon: ICONS.heart, label: "ไลก์" },
+      { key: "comment", icon: ICONS.comment, label: "คอมเมนต์" },
+      { key: "view", icon: ICONS.eye, label: "วิว" }
+    ].filter(function (d) { return stats[d.key]; });
+
+    if (statDefs.length) {
+      var group = el("div", "stat-group");
+      statDefs.forEach(function (d) {
+        var item = el("span", "stat-item");
+        item.appendChild(icon(d.icon));
+        item.appendChild(document.createTextNode(stats[d.key]));
+        item.title = d.label;
+        group.appendChild(item);
+      });
+      card.appendChild(detailRow("สถิติ", group, null));
+    }
+
+    // ลิงก์ต้นฉบับ
+    if (details.webpage_url) {
+      var linkNode = el("div", "detail-value mono", details.webpage_url);
+      card.appendChild(detailRow("ลิงก์ต้นฉบับ", linkNode, details.webpage_url, "คัดลอกลิงก์ต้นฉบับ"));
+    }
+
+    return card;
+  }
+
+  function buildPlainText(details) {
+    var lines = [];
+    if (details.title) lines.push(details.title, "");
+    if (details.caption) lines.push(details.caption, "");
+    (details.shopee_links || []).forEach(function (link) {
+      lines.push("ลิงก์ Shopee ที่พบ: " + link);
+    });
+    var stats = details.stats || {};
+    var statText = [];
+    if (stats.like) statText.push("ไลก์ " + stats.like);
+    if (stats.comment) statText.push("คอมเมนต์ " + stats.comment);
+    if (stats.view) statText.push("วิว " + stats.view);
+    if (statText.length) lines.push(statText.join(" · "));
+    if (details.webpage_url) lines.push(details.webpage_url);
+    return lines.join("\n").trim();
+  }
+
+  function buildActionRow(details) {
+    var row = el("div", "action-row");
+
+    var videoBtn = el("button", "btn-ghost");
+    videoBtn.type = "button";
+    videoBtn.appendChild(icon(ICONS.download));
+    var videoLabel = details.resolution
+      ? "วิดีโอ (" + details.resolution + " สูงสุด)"
+      : "วิดีโอ (คุณภาพสูงสุด)";
+    videoBtn.appendChild(document.createTextNode(videoLabel));
+    videoBtn.addEventListener("click", function () { startDownload(videoBtn); });
+    row.appendChild(videoBtn);
+
+    if (details.caption) {
+      var capBtn = el("button", "btn-ghost");
+      capBtn.type = "button";
+      capBtn.appendChild(icon(ICONS.download));
+      capBtn.appendChild(document.createTextNode("แคปชั่น .txt"));
+      capBtn.addEventListener("click", function () {
+        saveTextFile(buildPlainText(details), safeName(details) + ".txt");
+      });
+      row.appendChild(capBtn);
+    }
+
+    var jsonBtn = el("button", "btn-ghost");
+    jsonBtn.type = "button";
+    jsonBtn.appendChild(icon(ICONS.download));
+    jsonBtn.appendChild(document.createTextNode("metadata .json"));
+    jsonBtn.addEventListener("click", function () {
+      saveTextFile(JSON.stringify(details, null, 2), safeName(details) + ".json");
+    });
+    row.appendChild(jsonBtn);
+
+    return row;
+  }
+
+  function safeName(details) {
+    var base = (details.title || "socialscoop").slice(0, 60);
+    return base.replace(/[\\/:*?"<>|\n\r\t]+/g, "_").trim() || "socialscoop";
+  }
+
+  function saveTextFile(text, filename) {
+    var blob = new Blob([text], { type: "text/plain;charset=utf-8" });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+  }
+
+  function startDownload(btn) {
+    if (state.downloading || !state.url) return;
+    state.downloading = true;
+    btn.disabled = true;
+    var originalNodes = Array.prototype.slice.call(btn.childNodes);
+    btn.textContent = "กำลังดาวน์โหลด...";
+    showToast("กำลังดาวน์โหลดวิดีโอ อาจใช้เวลาสักครู่");
+
+    postJSON("/api/download", { url: state.url })
+      .then(function (data) {
+        window.location.href = "/api/file/" + encodeURIComponent(data.filename);
+        showToast("ดาวน์โหลดเสร็จแล้ว");
+      })
+      .catch(function (err) {
+        setError(err.message);
+        showToast("ดาวน์โหลดไม่สำเร็จ");
+      })
+      .finally(function () {
+        state.downloading = false;
+        btn.disabled = false;
+        btn.textContent = "";
+        originalNodes.forEach(function (n) { btn.appendChild(n); });
+      });
+  }
+
+  /* ---------- แผง AI ---------- */
+  function buildAiPanel(details) {
+    var panel = el("div", "ai-panel");
+    panel.appendChild(el("div", "ai-label", "ถาม AI เกี่ยวกับโพสต์นี้"));
+
+    if (!details.caption) {
+      panel.appendChild(el("p", "ai-disabled-note",
+        "โพสต์นี้ไม่มีข้อความให้ AI วิเคราะห์"));
+      return panel;
+    }
+    if (!AI_ENABLED) {
+      panel.appendChild(el("p", "ai-disabled-note",
+        "ยังไม่ได้ตั้งค่า OPENROUTER_API_KEY — คัดลอกไฟล์ .env.example เป็น .env แล้วใส่คีย์จาก openrouter.ai เพื่อเปิดใช้"));
+      return panel;
+    }
+
+    var log = el("div", "ai-log");
+    panel.appendChild(log);
+
+    var aiForm = el("form", "ai-form");
+    var input = document.createElement("input");
+    input.type = "text";
+    input.placeholder = "เช่น สรุปให้หน่อย / สินค้านี้ราคาเท่าไหร่";
+    input.setAttribute("aria-label", "คำถามเกี่ยวกับโพสต์นี้");
+    input.maxLength = 1000;
+
+    var sendBtn = el("button", "btn-teal", "ถาม");
+    sendBtn.type = "submit";
+
+    aiForm.appendChild(input);
+    aiForm.appendChild(sendBtn);
+
+    aiForm.addEventListener("submit", function (event) {
+      event.preventDefault();
+      var question = input.value.trim();
+      if (!question) return;
+
+      var turn = el("div", "ai-turn");
+      turn.appendChild(el("p", "ai-q", question));
+      var answerNode = el("p", "ai-a", "กำลังคิด...");
+      turn.appendChild(answerNode);
+      log.appendChild(turn);
+
+      input.value = "";
+      input.disabled = true;
+      sendBtn.disabled = true;
+
+      postJSON("/api/ask", { caption: details.caption, question: question })
+        .then(function (data) { answerNode.textContent = data.answer; })
+        .catch(function (err) {
+          answerNode.textContent = err.message;
+          answerNode.classList.add("error");
+        })
+        .finally(function () {
+          input.disabled = false;
+          sendBtn.disabled = false;
+          input.focus();
+        });
+    });
+
+    panel.appendChild(aiForm);
+    return panel;
+  }
+
+  updateChips();
+})();
