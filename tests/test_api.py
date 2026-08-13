@@ -204,6 +204,81 @@ class TestAiChatUnit:
         with pytest.raises(ai_chat.AIError, match="API key"):
             ai_chat.ask_ai("แคปชั่น", "คำถาม")
 
+    def test_ทุกรุ่นในลิสต์ต้องเป็นรุ่นฟรี(self):
+        # กันเผลอเพิ่มรุ่นเสียเงินเข้ามาแล้วเกิดค่าใช้จ่ายโดยไม่รู้ตัว
+        for model in ai_chat.FREE_MODELS:
+            assert model.endswith(":free"), f"{model} ไม่ใช่รุ่นฟรี"
+
+    def test_ไม่มีรุ่นที่ขึ้นบัญชีห้ามใช้(self):
+        banned = {
+            "nvidia/nemotron-3.5-lightning:free",      # พ่น chain-of-thought
+            "nvidia/nemotron-3-super-120b-a12b:free",  # ช้า 34 วินาที
+            "liquid/lfm-2.5-2.6b:free",                # ช้าผิดปกติ
+        }
+        assert not (set(ai_chat.FREE_MODELS) & banned)
+
+    def test_ถ้ามีค่าใช้จ่ายต้องหยุดทันที(self, monkeypatch):
+        monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+
+        class Charged:
+            status_code = 200
+
+            def raise_for_status(self):
+                pass
+
+            def json(self):
+                return {
+                    "choices": [{"message": {"content": "คำตอบ"}}],
+                    "usage": {"cost": 0.0012},
+                }
+
+        monkeypatch.setattr(ai_chat.requests, "post", lambda *a, **k: Charged())
+
+        with pytest.raises(ai_chat.CostError, match="ค่าใช้จ่าย"):
+            ai_chat.ask_ai("แคปชั่น", "คำถาม")
+
+    def test_cost_ศูนย์ผ่านปกติ(self, monkeypatch):
+        monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+
+        class Free:
+            status_code = 200
+
+            def raise_for_status(self):
+                pass
+
+            def json(self):
+                return {
+                    "choices": [{"message": {"content": "คำตอบฟรี"}}],
+                    "usage": {"cost": 0},
+                }
+
+        monkeypatch.setattr(ai_chat.requests, "post", lambda *a, **k: Free())
+        assert ai_chat.ask_ai("แคปชั่น", "คำถาม") == "คำตอบฟรี"
+
+    def test_เจอ_429_ข้ามไปรุ่นถัดไป(self, monkeypatch):
+        monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+        seen = []
+
+        class Resp:
+            def __init__(self, code):
+                self.status_code = code
+
+            def raise_for_status(self):
+                pass
+
+            def json(self):
+                return {"choices": [{"message": {"content": "ตอบจากรุ่นสำรอง"}}]}
+
+        def fake_post(*args, **kwargs):
+            model = kwargs["json"]["model"]
+            seen.append(model)
+            return Resp(429 if len(seen) == 1 else 200)
+
+        monkeypatch.setattr(ai_chat.requests, "post", fake_post)
+
+        assert ai_chat.ask_ai("แคปชั่น", "คำถาม") == "ตอบจากรุ่นสำรอง"
+        assert len(seen) == 2, "รุ่นแรกโดน 429 ต้องข้ามไปรุ่นที่สองทันที"
+
     def test_แคปชั่นว่างไม่ยิง_api(self, monkeypatch):
         monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
         monkeypatch.setattr(
