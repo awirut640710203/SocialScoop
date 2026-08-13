@@ -15,6 +15,12 @@ from starlette.responses import Response
 
 REALM = "SocialScoop"
 
+# path ที่ยกเว้นไม่ต้องผ่านรหัสผ่าน — เฉพาะ health check endpoint สำหรับให้
+# แพลตฟอร์ม deploy (เช่น Render) ตรวจสอบว่าเซิร์ฟเวอร์ยังตอบสนองอยู่หรือไม่
+# ถ้าไม่ยกเว้นตรงนี้ Render จะเจอ 401 ทุกครั้งที่ตรวจสุขภาพ แล้วคิดว่าแอปพัง
+# ไม่ยอม mark deploy ว่าสำเร็จ — endpoint นี้คืนแค่ {"ok": true} ไม่มีข้อมูลอ่อนไหว
+UNAUTHENTICATED_PATHS = frozenset({"/healthz"})
+
 
 def configured_password() -> str | None:
     """รหัสผ่านที่ตั้งไว้ผ่าน SOCIALSCOOP_PASSWORD หรือ None ถ้าไม่ได้ตั้ง
@@ -54,6 +60,9 @@ class BasicAuthMiddleware(BaseHTTPMiddleware):
     """
 
     async def dispatch(self, request: Request, call_next):
+        if request.url.path in UNAUTHENTICATED_PATHS:
+            return await call_next(request)
+
         password = configured_password()
         if password is None:
             return await call_next(request)

@@ -1,0 +1,19 @@
+# Render Blueprint — https://render.com/docs/blueprint-spec
+#
+# ใช้ตอนสมัคร Render ครั้งแรก: New > Blueprint > เลือก repo นี้
+# Render จะอ่านไฟล์นี้แล้วตั้งค่า service ให้อัตโนมัติ เหลือแค่กรอกค่า
+# OPENROUTER_API_KEY กับ SOCIALSCOOP_PASSWORD เอง (ตั้ง sync: false ไว้ เพราะ
+# เป็นความลับ ไม่ควรอยู่ในไฟล์ที่ push ขึ้น git)
+
+services:
+  - type: web
+    name: socialscoop
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    healthCheckPath: /healthz
+    envVars:
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: SOCIALSCOOP_PASSWORD
+        sync: false

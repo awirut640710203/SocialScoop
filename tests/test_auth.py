@@ -56,3 +56,14 @@ class TestPasswordConfigured:
 
     def test_หน้าแรกก็โดนป้องกัน(self):
         assert client.get("/").status_code == 401
+
+    def test_healthz_ยกเว้นไม่ต้องผ่านรหัส(self):
+        # จำเป็นสำหรับ Render/แพลตฟอร์ม deploy ตรวจสุขภาพเซิร์ฟเวอร์ — ถ้าโดน
+        # บล็อกด้วย จะคิดว่าแอปพังแล้วไม่ mark deploy ว่าสำเร็จ
+        res = client.get("/healthz")
+        assert res.status_code == 200
+        assert res.json() == {"ok": True}
+
+    def test_api_health_ยังโดนป้องกันอยู่(self):
+        # ต่างจาก /healthz ตรงนี้มีข้อมูล ai_enabled จึงยังป้องกันไว้เหมือนเดิม
+        assert client.get("/api/health").status_code == 401

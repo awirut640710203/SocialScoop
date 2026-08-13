@@ -112,3 +112,13 @@ def ask(payload: AskRequest):
 @app.get("/api/health")
 def health():
     return {"ok": True, "ai_enabled": ai_chat.has_api_key()}
+
+
+@app.get("/healthz")
+def healthz():
+    """Health check สำหรับแพลตฟอร์ม deploy (Render ฯลฯ) — ไม่ต้องผ่านรหัสผ่าน
+
+    ตั้งใจให้คืนข้อมูลน้อยที่สุด ไม่มีอะไรอ่อนไหว เพราะ path นี้ยกเว้นจาก
+    BasicAuthMiddleware ไว้ (ดู app/auth.py: UNAUTHENTICATED_PATHS)
+    """
+    return {"ok": True}
