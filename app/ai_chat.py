@@ -7,29 +7,38 @@ import requests
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 
-# รุ่นฟรีที่คัดแล้ว เรียงตามลำดับ fallback
+# รุ่นฟรี เรียงตาม Intelligence Index ของ Artificial Analysis (มากไปน้อย)
 #
-# ทุกตัวต้องมีราคา 0 ทุกช่อง (prompt/completion/request/image/reasoning)
-# ยืนยันจาก https://openrouter.ai/api/v1/models และทดสอบจริงด้วยโจทย์ภาษาไทย
-# เมื่อ 2026-08-13 — ตัวเลขในวงเล็บคือเวลาตอบที่วัดได้จริง
+# ที่มาของลำดับ — ไม่ได้จัดเอง แต่อ้างอิง 2 แหล่งประกอบกัน:
+#   1. คะแนนความสามารถ: https://artificialanalysis.ai/leaderboards/models
+#      (ดึงคะแนน intelligenceIndex ของ 591 โมเดล เทียบกับรายชื่อรุ่นฟรี)
+#   2. ราคา: https://openrouter.ai/api/v1/models
+#      (คัดเฉพาะรุ่นที่ราคาเป็น 0 ทุกช่อง — เหลือ 19 จาก 410 โมเดล)
+# แล้วทดสอบจริงด้วยโจทย์ภาษาไทย 2 ข้อต่อรุ่น ตัดตัวที่ตอบผิดรูปแบบออก
 #
+# ตัวเลขท้ายบรรทัด = คะแนน AA / เวลาตอบเฉลี่ยที่วัดได้จริง (2026-08-13)
 # ห้ามใส่โมเดลที่ไม่ลงท้าย ":free" เด็ดขาด (มีเทสต์คุมไว้) เพราะจะเริ่มมีค่าใช้จ่าย
 FREE_MODELS = [
-    "nvidia/nemotron-3-ultra-550b-a55b:free",   # 550B ฉลาดสุดในกลุ่ม ตอบไทยตรง (4.4s)
-    "google/gemma-4-26b-a4b-it:free",           # เร็วและตอบไทยดี เหมาะเป็นตัวหลัก (1.4s)
-    "nvidia/nemotron-3-nano-30b-a3b:free",      # เร็ว ตอบไทยตรง (1.6s)
-    "inclusionai/ling-3.0-tiny:free",           # เร็วสุด ตอบไทยตรง (1.1s)
-    "openai/gpt-oss-20b:free",                  # สำรอง ตอบไทยได้ (5.1s)
-    "google/gemma-4-31b-it:free",               # ดีแต่ตอนทดสอบโดน rate limit ต้นทาง
+    "nvidia/nemotron-3-ultra-550b-a55b:free",   # AA 38.3 · 9.3s · ผ่านทดสอบไทย 2/2
+    "google/gemma-4-31b-it:free",               # AA 29.7 · มักโดน 429 ต้นทาง ระบบข้ามให้เอง
+    "google/gemma-4-26b-a4b-it:free",           # AA 26.1 · 2.1s · โดน 429 เป็นช่วง ๆ
+    "nvidia/nemotron-3-super-120b-a12b:free",   # AA 25.7 · 28.2s · ผ่าน 2/2 แต่ช้า
+    "inclusionai/ling-3.0-tiny:free",           # AA 24.5 · 2.0s · ผ่าน 2/2 เร็วสุดในกลุ่ม
+    "cohere/north-mini-code:free",              # AA 20.2 · 8.4s · ผ่าน 2/2
+    "openai/gpt-oss-20b:free",                  # AA 15.2 · 16.6s · ผ่าน 2/2
 ]
 
-# โมเดลฟรีที่ทดสอบแล้ว "ห้ามใช้" — บันทึกไว้กันเผลอเพิ่มกลับเข้ามา
-#   nvidia/nemotron-3.5-lightning:free  -> พ่น chain-of-thought ภาษาอังกฤษแทนคำตอบ
-#   nvidia/nemotron-3-super-120b-a12b:free -> ตอบถูกแต่ใช้เวลา 34 วินาที
-#   openrouter/free                     -> auto-router ช้า (22s) และคุมรุ่นไม่ได้
-#   liquid/lfm-2.5-2.6b:free            -> ตอบถูกแต่ช้าผิดปกติ (13.5s)
-#   google/lyria-3-*                    -> โมเดลสร้างเพลง ไม่ใช่แชท
-#   nvidia/nemotron-3.5-content-safety  -> โมเดลกรองเนื้อหา ไม่ใช่แชท
+# รุ่นฟรีที่ "ห้ามใช้" พร้อมเหตุผลจากการทดสอบจริง — กันเผลอเพิ่มกลับเข้ามา
+#   nvidia/nemotron-3.5-lightning:free  AA 23.6 แต่พ่น chain-of-thought ภาษาอังกฤษ
+#                                       แทนคำตอบ ทั้งที่ส่ง reasoning.exclude แล้ว (0/2)
+#   nvidia/nemotron-3-nano-30b-a3b:free AA 14.5 อ่อนกว่าตัวอื่นในลิสต์ชัดเจน
+#   nvidia/nemotron-nano-9b-v2:free     AA 8.7 (ประมาณการ) อ่อนสุด
+#   liquid/lfm-2.5-2.6b:free            ไม่มีคะแนนใน AA และช้า 13.5s
+#   openrouter/free                     auto-router คุมไม่ได้ว่าวิ่งไปรุ่นไหน ช้า 22s
+#   deepseek/* ทุกตัว                    คะแนนสูง (V4 Pro = 53.0) แต่ไม่มีรุ่นฟรีบน
+#                                       OpenRouter — ถูกมากแต่ไม่ใช่ 0
+#   google/lyria-3-*                    โมเดลสร้างเพลง ไม่ใช่แชท
+#   nvidia/nemotron-3.5-content-safety  โมเดลกรองเนื้อหา ไม่ใช่แชท
 
 # จำกัดความยาวคำตอบ กันโมเดลร่ายยาวและกันโควตาหมดเร็ว
 MAX_TOKENS = 500
@@ -121,6 +130,9 @@ def ask_ai(caption: str, question: str, api_key: str | None = None) -> str:
                         {"role": "user", "content": prompt},
                     ],
                     "max_tokens": MAX_TOKENS,
+                    # หลายรุ่นในลิสต์เป็น reasoning model — ขอไม่เอา reasoning token
+                    # กลับมา ลดโทเคนที่เสียเปล่าและลดโอกาสที่ความคิดจะปนมาในคำตอบ
+                    "reasoning": {"exclude": True},
                 },
                 timeout=60,
             )

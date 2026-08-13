@@ -211,11 +211,59 @@ class TestAiChatUnit:
 
     def test_ไม่มีรุ่นที่ขึ้นบัญชีห้ามใช้(self):
         banned = {
-            "nvidia/nemotron-3.5-lightning:free",      # พ่น chain-of-thought
-            "nvidia/nemotron-3-super-120b-a12b:free",  # ช้า 34 วินาที
-            "liquid/lfm-2.5-2.6b:free",                # ช้าผิดปกติ
+            "nvidia/nemotron-3.5-lightning:free",   # พ่น chain-of-thought แม้ปิด reasoning
+            "nvidia/nemotron-3-nano-30b-a3b:free",  # AA 14.5 อ่อนกว่าตัวอื่นในลิสต์
+            "nvidia/nemotron-nano-9b-v2:free",      # AA 8.7 อ่อนสุด
+            "liquid/lfm-2.5-2.6b:free",             # ไม่มีคะแนนใน AA และช้า
+            "openrouter/free",                      # auto-router คุมรุ่นไม่ได้
         }
         assert not (set(ai_chat.FREE_MODELS) & banned)
+
+    def test_เรียงตามคะแนน_artificial_analysis(self):
+        """ลำดับต้องตรงกับคะแนน Intelligence Index ที่ดึงมาเมื่อ 2026-08-13
+
+        ที่มา: https://artificialanalysis.ai/leaderboards/models
+        ถ้าจะสลับลำดับ ต้องอัปเดตคะแนนอ้างอิงตรงนี้ด้วย ไม่ใช่เรียงตามความรู้สึก
+        """
+        aa_scores = {
+            "nvidia/nemotron-3-ultra-550b-a55b:free": 38.3,
+            "google/gemma-4-31b-it:free": 29.7,
+            "google/gemma-4-26b-a4b-it:free": 26.1,
+            "nvidia/nemotron-3-super-120b-a12b:free": 25.7,
+            "inclusionai/ling-3.0-tiny:free": 24.5,
+            "cohere/north-mini-code:free": 20.2,
+            "openai/gpt-oss-20b:free": 15.2,
+        }
+        assert set(ai_chat.FREE_MODELS) == set(aa_scores), "ลิสต์ไม่ตรงกับตารางคะแนนอ้างอิง"
+
+        scores = [aa_scores[m] for m in ai_chat.FREE_MODELS]
+        assert scores == sorted(scores, reverse=True), (
+            f"ลำดับไม่ได้เรียงจากคะแนนมากไปน้อย: {scores}"
+        )
+
+    def test_ส่ง_reasoning_exclude_ไปด้วย(self, monkeypatch):
+        # กันรุ่น reasoning ส่งความคิดปนมาในคำตอบ และลดโทเคนที่เสียเปล่า
+        monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+        captured = {}
+
+        class Resp:
+            status_code = 200
+
+            def raise_for_status(self):
+                pass
+
+            def json(self):
+                return {"choices": [{"message": {"content": "ตอบแล้ว"}}]}
+
+        def fake_post(*args, **kwargs):
+            captured.update(kwargs["json"])
+            return Resp()
+
+        monkeypatch.setattr(ai_chat.requests, "post", fake_post)
+        ai_chat.ask_ai("แคปชั่น", "คำถาม")
+
+        assert captured["reasoning"] == {"exclude": True}
+        assert captured["max_tokens"] == ai_chat.MAX_TOKENS
 
     def test_ถ้ามีค่าใช้จ่ายต้องหยุดทันที(self, monkeypatch):
         monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")

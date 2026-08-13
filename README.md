@@ -73,22 +73,42 @@ TikTok และ Instagram บล็อกคำขอที่ยิงถี�
 
 ## โมเดล AI (ค่าใช้จ่าย 0 บาท)
 
-ใช้เฉพาะรุ่นที่ราคา **0 ทุกช่อง** (prompt / completion / request / image / reasoning)
-คัดมาจากการทดสอบจริงด้วยโจทย์ภาษาไทยเมื่อ 2026-08-13:
+### ลำดับมาจากไหน
 
-| ลำดับ | โมเดล | เวลาตอบ | หมายเหตุ |
-|---|---|---|---|
-| 1 | `nvidia/nemotron-3-ultra-550b-a55b:free` | 4.4s | ฉลาดสุดในกลุ่ม ตอบไทยตรง |
-| 2 | `google/gemma-4-26b-a4b-it:free` | 1.4s | เร็วและตอบไทยดี |
-| 3 | `nvidia/nemotron-3-nano-30b-a3b:free` | 1.6s | เร็ว ตอบไทยตรง |
-| 4 | `inclusionai/ling-3.0-tiny:free` | 1.1s | เร็วสุด |
-| 5 | `openai/gpt-oss-20b:free` | 5.1s | สำรอง |
-| 6 | `google/gemma-4-31b-it:free` | — | ดีแต่ตอนทดสอบโดน rate limit ต้นทาง |
+ไม่ได้จัดเอง แต่อ้างอิงสองแหล่งประกอบกัน แล้วยืนยันด้วยการทดสอบจริง:
 
-ระบบไล่ลองจากบนลงล่าง เจอ 429 หรือ error ก็ข้ามไปตัวถัดไปอัตโนมัติ
+1. **คะแนนความสามารถ** — [Artificial Analysis Intelligence Index](https://artificialanalysis.ai/leaderboards/models)
+   ดึงคะแนน `intelligenceIndex` ของ 591 โมเดลมาเทียบ
+2. **ราคา** — [OpenRouter models API](https://openrouter.ai/api/v1/models)
+   คัดเฉพาะรุ่นที่ราคาเป็น 0 ทุกช่อง (prompt / completion / request / image / reasoning)
+   → เหลือ **19 จาก 410 โมเดล**
+3. **ทดสอบจริง** — ยิงโจทย์ภาษาไทย 2 ข้อต่อรุ่น (ข้อหนึ่งมีคำตอบในโพสต์ อีกข้อไม่มี
+   เพื่อดูว่ารุ่นนั้นยอมบอกว่า "ไม่มีข้อมูล" หรือมั่วขึ้นมา) แล้วตัดรุ่นที่ตอบผิดรูปแบบออก
 
-**รุ่นที่ทดสอบแล้วไม่ใช้** — `nemotron-3.5-lightning` (พ่น chain-of-thought ภาษาอังกฤษแทนคำตอบ),
-`nemotron-3-super-120b` (34s), `liquid/lfm-2.5-2.6b` (13.5s), `openrouter/free` (22s)
+| ลำดับ | โมเดล | AA Index | ทดสอบไทย | เวลา |
+|---|---|---|---|---|
+| 1 | `nvidia/nemotron-3-ultra-550b-a55b:free` | **38.3** | 2/2 | 9.3s |
+| 2 | `google/gemma-4-31b-it:free` | **29.7** | โดน 429 | — |
+| 3 | `google/gemma-4-26b-a4b-it:free` | **26.1** | 1/2 (429) | 2.1s |
+| 4 | `nvidia/nemotron-3-super-120b-a12b:free` | **25.7** | 2/2 | 28.2s |
+| 5 | `inclusionai/ling-3.0-tiny:free` | **24.5** | 2/2 | 2.0s |
+| 6 | `cohere/north-mini-code:free` | **20.2** | 2/2 | 8.4s |
+| 7 | `openai/gpt-oss-20b:free` | **15.2** | 2/2 | 16.6s |
+
+ระบบไล่ลองจากบนลงล่าง เจอ 429 หรือ error ก็ข้ามไปตัวถัดไปอัตโนมัติ (ใช้เวลาข้ามไม่ถึง 1 วินาที)
+
+### รุ่นที่ตัดออก พร้อมเหตุผล
+
+| โมเดล | AA | เหตุผล |
+|---|---|---|
+| `nvidia/nemotron-3.5-lightning:free` | 23.6 | พ่น chain-of-thought ภาษาอังกฤษแทนคำตอบ (0/2) แม้ส่ง `reasoning.exclude` แล้ว |
+| `nvidia/nemotron-3-nano-30b-a3b:free` | 14.5 | อ่อนกว่าตัวอื่นในลิสต์ชัดเจน |
+| `nvidia/nemotron-nano-9b-v2:free` | 8.7 | อ่อนสุด |
+| `liquid/lfm-2.5-2.6b:free` | — | ไม่มีคะแนนใน AA และช้า 13.5s |
+| `openrouter/free` | — | auto-router คุมไม่ได้ว่าวิ่งไปรุ่นไหน ช้า 22s |
+| `deepseek/*` ทุกตัว | 53.0 (V4 Pro) | คะแนนสูงกว่าทุกรุ่นในลิสต์มาก แต่ **ไม่มีรุ่นฟรี** บน OpenRouter — V4 Flash คิด $0.14/$0.28 ต่อล้าน token ถูกมากแต่ไม่ใช่ 0 |
+
+> ถ้ายอมจ่ายหลักสตางค์ต่อเดือน `deepseek/deepseek-v4-flash` เป็นตัวเลือกที่ดีกว่าทุกรุ่นในตารางบนอย่างชัดเจน — แก้ `FREE_MODELS` ใน `app/ai_chat.py` ได้เลย แต่ต้องปิดเทสต์ `test_ทุกรุ่นในลิสต์ต้องเป็นรุ่นฟรี` ด้วย
 
 ### กลไกกันค่าใช้จ่าย
 
