@@ -15,12 +15,14 @@ from pydantic import BaseModel, Field
 from starlette.requests import Request
 
 from . import ai_chat, downloader
+from .auth import BasicAuthMiddleware
 from .extract import PLATFORM_LABELS, detect_platform
 
 BASE_DIR = Path(__file__).resolve().parent
 DOWNLOAD_DIR = (BASE_DIR.parent / "downloads").resolve()
 
 app = FastAPI(title="SocialScoop", version="0.1.0")
+app.add_middleware(BasicAuthMiddleware)
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 

@@ -83,6 +83,15 @@ def main() -> None:
     if not os.environ.get("OPENROUTER_API_KEY"):
         print("หมายเหตุ: ยังไม่มี OPENROUTER_API_KEY — ฟีเจอร์ถาม AI จะถูกปิดไว้", flush=True)
 
+    if os.environ.get("SOCIALSCOOP_PASSWORD", "").strip():
+        print("การป้องกันด้วยรหัสผ่าน: เปิดอยู่", flush=True)
+    elif args.lan:
+        print(
+            "คำเตือน: เปิดโหมด --lan แต่ยังไม่ได้ตั้ง SOCIALSCOOP_PASSWORD — "
+            "ใครก็ตามในวง Wi-Fi นี้เข้าใช้งานได้โดยไม่ต้องใส่รหัส",
+            flush=True,
+        )
+
     uvicorn.run("app.main:app", host=host, port=args.port, reload=args.reload)
 
 
