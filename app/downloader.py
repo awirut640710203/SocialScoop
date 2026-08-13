@@ -37,8 +37,8 @@ _BASE_OPTS = {
 def cookie_browser() -> str | None:
     """เบราว์เซอร์ที่จะดึงคุกกี้มาใช้ อ่านจาก SOCIALSCOOP_COOKIES_BROWSER
 
-    TikTok และ Instagram บล็อกคำขอที่ไม่มีคุกกี้บ่อยมาก การส่งคุกกี้จากเบราว์เซอร์
-    ที่ล็อกอินไว้แล้วช่วยให้ดึงข้อมูลผ่านได้ในกรณีที่โดนบล็อก
+    TikTok และ Instagram ปฏิเสธคำขอที่ไม่มีคุกกี้บ่อยมาก การส่งคุกกี้จากเบราว์เซอร์
+    ที่เข้าสู่ระบบไว้แล้วช่วยให้ดึงข้อมูลผ่านได้ในกรณีที่ถูกปฏิเสธ
     """
     name = os.environ.get("SOCIALSCOOP_COOKIES_BROWSER", "").strip().lower()
     return name if name in SUPPORTED_COOKIE_BROWSERS else None
@@ -86,11 +86,11 @@ def _friendly_error(exc: Exception) -> str:
     if "universal data" in lowered or "rehydration" in lowered:
         if cookie_browser():
             return (
-                "TikTok บล็อกคำขอนี้ชั่วคราว — รอสัก 1-2 นาทีแล้วลองใหม่ "
+                "TikTok ปฏิเสธคำขอนี้ชั่วคราว — รอสัก 1-2 นาทีแล้วลองอีกครั้ง "
                 "หรือเปิดเบราว์เซอร์เข้า tiktok.com สักครั้งเพื่อรีเฟรชคุกกี้"
             )
         return (
-            "TikTok บล็อกคำขอที่ไม่มีคุกกี้ — ตั้งค่า SOCIALSCOOP_COOKIES_BROWSER=chrome "
+            "TikTok ปฏิเสธคำขอที่ไม่มีคุกกี้ — ตั้งค่า SOCIALSCOOP_COOKIES_BROWSER=chrome "
             "ในไฟล์ .env (ต้องเปิดเบราว์เซอร์เข้า tiktok.com ไว้ก่อน) แล้วลองใหม่"
         )
     # Chrome/Edge รุ่นใหม่บน Windows เข้ารหัสคุกกี้แบบที่ yt-dlp ถอดไม่ได้
@@ -109,7 +109,7 @@ def _friendly_error(exc: Exception) -> str:
     if "unsupported url" in lowered:
         return "ลิงก์นี้ยังไม่รองรับ — ลองตรวจสอบว่าเป็นลิงก์โพสต์โดยตรงหรือไม่"
     if "private" in lowered or "login" in lowered or "sign in" in lowered:
-        return "โพสต์นี้เป็นส่วนตัวหรือต้องล็อกอิน — รองรับเฉพาะโพสต์สาธารณะเท่านั้น"
+        return "โพสต์นี้เป็นแบบส่วนตัวหรือต้องเข้าสู่ระบบก่อน — รองรับเฉพาะโพสต์สาธารณะเท่านั้น"
     if "not exist" in lowered or "404" in lowered or "unavailable" in lowered:
         return "ไม่พบโพสต์นี้ — อาจถูกลบไปแล้วหรือลิงก์ผิด"
     if "rate" in lowered and "limit" in lowered:
@@ -149,7 +149,7 @@ def fetch_metadata(url: str) -> dict:
 
 
 def download_video(url: str, output_dir: Path | str = DOWNLOAD_DIR) -> dict:
-    """ดาวน์โหลดวิดีโอคุณภาพสูงสุด (ไม่เกิน 1080p) พร้อมไฟล์ข้อความและ metadata
+    """ดาวน์โหลดวิดีโอคุณภาพสูงสุดเท่าที่โพสต์นั้นมี พร้อมไฟล์คำบรรยายและข้อมูลกำกับ
 
     Returns: {"video_path": str, "filename": str, "details": dict}
     Raises: DownloadError ถ้าดาวน์โหลดไม่สำเร็จ

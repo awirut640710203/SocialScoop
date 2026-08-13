@@ -1,6 +1,6 @@
 /* SocialScoop frontend
-   หมายเหตุ: เนื้อหาจากโพสต์ (แคปชั่น ชื่อ ลิงก์) ถูกใส่ผ่าน textContent เสมอ
-   ไม่ใช่ innerHTML เพื่อไม่ให้ HTML ในแคปชั่นถูกรันเป็นโค้ด */
+   หมายเหตุ: เนื้อหาจากโพสต์ (คำบรรยาย ชื่อ ลิงก์) ถูกใส่ผ่าน textContent เสมอ
+   ไม่ใช่ innerHTML เพื่อไม่ให้ HTML ในคำบรรยายถูกรันเป็นโค้ด */
 
 (function () {
   "use strict";
@@ -276,13 +276,13 @@
     head.appendChild(copyAll);
     card.appendChild(head);
 
-    // แคปชั่น
+    // คำบรรยาย
     if (details.caption) {
       var cap = el("div", "detail-value quote", details.caption);
-      card.appendChild(detailRow("แคปชั่น", cap, details.caption, "คัดลอกแคปชั่น"));
+      card.appendChild(detailRow("คำบรรยาย", cap, details.caption, "คัดลอกคำบรรยาย"));
     } else {
-      var empty = el("div", "detail-value hint", "ไม่มีคำบรรยายจากโพสต์นี้");
-      card.appendChild(detailRow("แคปชั่น", empty, null));
+      var empty = el("div", "detail-value hint", "โพสต์นี้ไม่มีคำบรรยาย");
+      card.appendChild(detailRow("คำบรรยาย", empty, null));
     }
 
     // ลิงก์ Shopee — แยกแถวละลิงก์ ไฮไลต์ต่างจากแถวอื่น
@@ -297,7 +297,7 @@
       var wrap = el("div", "detail-value");
       wrap.appendChild(el("div", "detail-value mono", link));
       wrap.appendChild(el("div", "hint",
-        "เจอในแคปชั่น — คัดลอกไปหาสินค้าตัวจริงบน Shopee แล้วค่อยสร้างลิงก์ affiliate ของคุณเองจากสินค้านั้น"));
+        "พบในคำบรรยาย — คัดลอกไปเปิดหน้าสินค้าจริงบน Shopee แล้วสร้างลิงก์ affiliate ของคุณเองจากหน้านั้น"));
       row.appendChild(wrap);
 
       row.appendChild(copyButton(link, "คัดลอกลิงก์ Shopee"));
@@ -311,12 +311,12 @@
       card.appendChild(detailRow("แฮชแท็ก", chips, details.hashtags.join(" "), "คัดลอกแฮชแท็ก"));
     }
 
-    // สถิติ — ซ่อนทั้งแถวถ้าไม่มีข้อมูลเลย ไม่โชว์ 0 หลอกผู้ใช้
+    // ยอดมีส่วนร่วม — ซ่อนทั้งแถวถ้าไม่มีข้อมูลเลย ไม่แสดง 0 ให้เข้าใจผิด
     var stats = details.stats || {};
     var statDefs = [
-      { key: "like", icon: ICONS.heart, label: "ไลก์" },
-      { key: "comment", icon: ICONS.comment, label: "คอมเมนต์" },
-      { key: "view", icon: ICONS.eye, label: "วิว" }
+      { key: "like", icon: ICONS.heart, label: "ถูกใจ" },
+      { key: "comment", icon: ICONS.comment, label: "ความคิดเห็น" },
+      { key: "view", icon: ICONS.eye, label: "การเข้าชม" }
     ].filter(function (d) { return stats[d.key]; });
 
     if (statDefs.length) {
@@ -326,9 +326,10 @@
         item.appendChild(icon(d.icon));
         item.appendChild(document.createTextNode(stats[d.key]));
         item.title = d.label;
+        item.setAttribute("aria-label", d.label + " " + stats[d.key]);
         group.appendChild(item);
       });
-      card.appendChild(detailRow("สถิติ", group, null));
+      card.appendChild(detailRow("ยอดมีส่วนร่วม", group, null));
     }
 
     // ลิงก์ต้นฉบับ
@@ -347,11 +348,12 @@
     (details.shopee_links || []).forEach(function (link) {
       lines.push("ลิงก์ Shopee ที่พบ: " + link);
     });
+    if ((details.shopee_links || []).length) lines.push("");
     var stats = details.stats || {};
     var statText = [];
-    if (stats.like) statText.push("ไลก์ " + stats.like);
-    if (stats.comment) statText.push("คอมเมนต์ " + stats.comment);
-    if (stats.view) statText.push("วิว " + stats.view);
+    if (stats.like) statText.push("ถูกใจ " + stats.like);
+    if (stats.comment) statText.push("ความคิดเห็น " + stats.comment);
+    if (stats.view) statText.push("การเข้าชม " + stats.view);
     if (statText.length) lines.push(statText.join(" · "));
     if (details.webpage_url) lines.push(details.webpage_url);
     return lines.join("\n").trim();
@@ -364,8 +366,8 @@
     videoBtn.type = "button";
     videoBtn.appendChild(icon(ICONS.download));
     var videoLabel = details.resolution
-      ? "วิดีโอ (" + details.resolution + " สูงสุด)"
-      : "วิดีโอ (คุณภาพสูงสุด)";
+      ? "วิดีโอ " + details.resolution
+      : "วิดีโอ";
     videoBtn.appendChild(document.createTextNode(videoLabel));
     videoBtn.addEventListener("click", function () { startDownload(videoBtn); });
     row.appendChild(videoBtn);
@@ -374,7 +376,7 @@
       var capBtn = el("button", "btn-ghost");
       capBtn.type = "button";
       capBtn.appendChild(icon(ICONS.download));
-      capBtn.appendChild(document.createTextNode("แคปชั่น .txt"));
+      capBtn.appendChild(document.createTextNode("คำบรรยาย (.txt)"));
       capBtn.addEventListener("click", function () {
         saveTextFile(buildPlainText(details), safeName(details) + ".txt");
       });
@@ -384,7 +386,7 @@
     var jsonBtn = el("button", "btn-ghost");
     jsonBtn.type = "button";
     jsonBtn.appendChild(icon(ICONS.download));
-    jsonBtn.appendChild(document.createTextNode("metadata .json"));
+    jsonBtn.appendChild(document.createTextNode("ข้อมูลทั้งหมด (.json)"));
     jsonBtn.addEventListener("click", function () {
       saveTextFile(JSON.stringify(details, null, 2), safeName(details) + ".json");
     });
@@ -421,7 +423,7 @@
     postJSON("/api/download", { url: state.url })
       .then(function (data) {
         window.location.href = "/api/file/" + encodeURIComponent(data.filename);
-        showToast("ดาวน์โหลดเสร็จแล้ว");
+        showToast("ดาวน์โหลดสำเร็จ");
       })
       .catch(function (err) {
         setError(err.message);

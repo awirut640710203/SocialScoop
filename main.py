@@ -22,18 +22,20 @@ def show_details(details: dict) -> None:
     print(f"  ผู้โพสต์  : {details.get('uploader') or '-'}")
 
     caption = details.get("caption")
-    print(f"  แคปชั่น   : {caption or '(ไม่มีคำบรรยาย)'}")
+    print(f"  คำบรรยาย  : {caption or '(ไม่มีคำบรรยาย)'}")
 
     if details.get("hashtags"):
         print(f"  แฮชแท็ก   : {' '.join(details['hashtags'])}")
 
     for link in details.get("shopee_links") or []:
-        print(f"  Shopee    : {link}   <- คัดลอกไปหาสินค้าตัวจริงเพื่อสร้างลิงก์ aff ของคุณเอง")
+        print(f"  Shopee    : {link}")
+        print("              (คัดลอกไปเปิดหน้าสินค้าจริง แล้วสร้างลิงก์ affiliate ของคุณเอง)")
 
     stats = details.get("stats") or {}
-    parts = [f"{k} {v}" for k, v in stats.items() if v]
+    labels = {"like": "ถูกใจ", "comment": "ความคิดเห็น", "view": "การเข้าชม"}
+    parts = [f"{labels.get(k, k)} {v}" for k, v in stats.items() if v]
     if parts:
-        print(f"  สถิติ     : {' · '.join(parts)}")
+        print(f"  ยอดมีส่วนร่วม: {' · '.join(parts)}")
 
 
 def main() -> int:
@@ -44,7 +46,7 @@ def main() -> int:
     parser.add_argument("-f", "--file", help="ไฟล์รวมลิงก์ (บรรทัดละ 1 ลิงก์)")
     parser.add_argument("--info-only", action="store_true", help="ดึงรายละเอียดอย่างเดียว ไม่ดาวน์โหลดไฟล์")
     parser.add_argument("--json", action="store_true", help="แสดงผลเป็น JSON")
-    parser.add_argument("-a", "--ask", help="ถาม AI เกี่ยวกับแคปชั่นที่ดึงมา")
+    parser.add_argument("-a", "--ask", help="ถาม AI เกี่ยวกับคำบรรยายที่ดึงมา")
     args = parser.parse_args()
 
     load_dotenv()

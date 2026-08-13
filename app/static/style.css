@@ -19,9 +19,15 @@
   --danger: #b3261e;
   --danger-soft: #fce8e6;
 
-  --font-display: Cambria, Georgia, "Times New Roman", serif;
-  --font-body: "Leelawadee UI", "Noto Sans Thai UI", "Noto Sans Thai", "Segoe UI", system-ui, sans-serif;
-  --font-mono: "Cascadia Mono", Consolas, "IBM Plex Mono", ui-monospace, monospace;
+  /* ใช้ตระกูลเดียวทั้งระบบ แยกลำดับความสำคัญด้วยน้ำหนักและขนาดแทนการเปลี่ยนฟอนต์
+     IBM Plex Sans Thai มีทั้งชุดไทยและละตินที่ออกแบบคู่กัน ข้อความไทยปนอังกฤษ
+     ในบรรทัดเดียวจึงดูเข้าชุด (ฟอนต์ serif อย่าง Cambria ไม่มีตัวอักษรไทยเลย
+     ถ้าใช้กับหัวข้อไทยจะตกไปใช้ฟอนต์สำรองแบบควบคุมไม่ได้) */
+  --font-sans: "IBM Plex Sans Thai", "Leelawadee UI", "Noto Sans Thai", "Segoe UI", system-ui, sans-serif;
+  /* IBM Plex Mono ไม่มีตัวอักษรไทย จึงต่อท้ายด้วยฟอนต์ไทยของเราเอง
+     ตัวเลข/URL ที่เป็นละตินได้ Plex Mono ส่วนข้อความไทยตกมาที่ Plex Sans Thai
+     ถ้าไม่ใส่ ไทยจะตกไปใช้ฟอนต์ระบบตัวไหนก็ได้ ควบคุมหน้าตาไม่ได้ */
+  --font-mono: "IBM Plex Mono", "Cascadia Mono", Consolas, "IBM Plex Sans Thai", ui-monospace, monospace;
 
   --shadow: 0 1px 2px rgba(22, 33, 29, 0.06), 0 8px 24px -12px rgba(22, 33, 29, 0.18);
   --radius: 10px;
@@ -76,9 +82,11 @@ body {
   min-height: 100dvh;
   background: var(--ground);
   color: var(--ink);
-  font-family: var(--font-body);
+  font-family: var(--font-sans);
   font-size: 16px;
-  line-height: 1.65;
+  /* ไทยต้องการช่องไฟระหว่างบรรทัดมากกว่าละติน เพราะมีสระบนและวรรณยุกต์ซ้อนขึ้นไป
+     ถ้าใช้ 1.5 แบบภาษาอังกฤษ วรรณยุกต์บรรทัดล่างจะเกือบชนสระบรรทัดบน */
+  line-height: 1.75;
   -webkit-font-smoothing: antialiased;
   display: flex;
   flex-direction: column;
@@ -123,7 +131,7 @@ body {
   margin: 0 auto;
 }
 .wordmark {
-  font-family: var(--font-display);
+  font-family: var(--font-sans);
   font-weight: 700;
   font-size: 22px;
   letter-spacing: -0.01em;
@@ -161,13 +169,19 @@ main {
 
 .hero { text-align: center; max-width: 620px; margin: 40px auto 0; }
 .hero h1 {
-  font-family: var(--font-display);
-  font-size: clamp(28px, 5.5vw, 40px);
-  font-weight: 700;
-  line-height: 1.25;
-  margin: 0 0 10px;
+  font-family: var(--font-sans);
+  font-size: clamp(26px, 5vw, 36px);
+  font-weight: 600;
+  /* หัวข้อไทยตัวใหญ่ยังต้องเผื่อที่ให้สระบน ใช้ 1.4 แทน 1.25 ของละติน */
+  line-height: 1.4;
+  letter-spacing: -0.005em;
+  margin: 0 0 12px;
   text-wrap: balance;
 }
+
+/* ภาษาไทยไม่มีช่องว่างระหว่างคำ เบราว์เซอร์จึงตัดบรรทัดกลางคำได้
+   ครอบคำที่ห้ามแยกด้วย .nb เพื่อบังคับให้ตัดเฉพาะตรงช่องว่างที่เราวางไว้เอง */
+.nb { white-space: nowrap; }
 .hero-sub {
   color: var(--muted);
   margin: 0 0 26px;
