@@ -79,6 +79,7 @@ html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 
 body {
   margin: 0;
+  min-height: 100vh;
   min-height: 100dvh;
   background: var(--ground);
   color: var(--ink);
@@ -227,7 +228,9 @@ main {
   white-space: nowrap;
   transition: opacity 150ms ease;
 }
-.btn-primary:hover:not(:disabled) { opacity: 0.9; }
+@media (hover: hover) {
+  .btn-primary:hover:not(:disabled) { opacity: 0.9; }
+}
 .btn-primary:disabled { opacity: 0.55; cursor: progress; }
 
 .spinner {
@@ -367,7 +370,9 @@ main {
   font-weight: 700;
   cursor: pointer;
 }
-.copy-all-btn:hover { border-color: var(--muted); }
+@media (hover: hover) {
+  .copy-all-btn:hover { border-color: var(--muted); }
+}
 .copy-all-btn svg { width: 14px; height: 14px; flex: none; }
 .copy-all-btn.copied { color: var(--teal); border-color: var(--teal); }
 
@@ -395,6 +400,7 @@ main {
 }
 
 .copy-icon-btn {
+  position: relative;
   flex: none;
   border: none;
   background: none;
@@ -405,7 +411,13 @@ main {
   border-radius: 8px;
   display: flex;
 }
-.copy-icon-btn:hover { background: var(--surface-2); color: var(--ink); }
+/* พื้นที่แตะจริงต้อง >=44px ตามมาตรฐาน Apple HIG แต่ไอคอนที่เห็นเล็กกว่านั้น
+   จึงขยายขอบเขตการแตะออกไปนอกกรอบที่มองเห็นแทนการทำปุ่มให้ใหญ่เทอะทะ */
+.copy-icon-btn::after {
+  content: "";
+  position: absolute;
+  inset: -8px;
+}
 .copy-icon-btn svg { width: 16px; height: 16px; }
 .copy-icon-btn.copied { color: var(--teal); }
 
@@ -465,7 +477,9 @@ main {
   cursor: pointer;
   text-decoration: none;
 }
-.btn-ghost:hover:not(:disabled) { border-color: var(--muted); }
+@media (hover: hover) {
+  .btn-ghost:hover:not(:disabled) { border-color: var(--muted); }
+}
 .btn-ghost:disabled { opacity: 0.55; cursor: progress; }
 .btn-ghost svg { width: 15px; height: 15px; flex: none; }
 
@@ -580,6 +594,33 @@ main {
   }
   .chip-row::-webkit-scrollbar { display: none; }
   .chip { flex: none; }
+}
+
+/* ---------- อุปกรณ์สัมผัส (iPhone / iPad) ---------- */
+/* Safari บน iOS จะซูมทั้งหน้าอัตโนมัติเมื่อแตะช่องกรอกที่ตัวอักษรเล็กกว่า 16px
+   แล้วไม่ซูมกลับให้เอง ผู้ใช้ต้องบีบนิ้วย่อเองทุกครั้ง — บังคับ 16px เฉพาะ
+   อุปกรณ์สัมผัส เพื่อไม่ให้กระทบสัดส่วนบนเดสก์ท็อป */
+@media (pointer: coarse) {
+  .paste-bar input,
+  .ai-form input {
+    font-size: 16px;
+  }
+}
+
+/* เผื่อพื้นที่ให้รอยบาก/Dynamic Island และแถบเลื่อนล่างของ iPhone
+   env() จะเป็น 0 บนอุปกรณ์ที่ไม่มีรอยบาก จึงใช้ max() กับค่าปกติได้อย่างปลอดภัย */
+.site-head,
+main {
+  padding-left: max(24px, env(safe-area-inset-left));
+  padding-right: max(24px, env(safe-area-inset-right));
+}
+.site-foot {
+  padding-left: max(24px, env(safe-area-inset-left));
+  padding-right: max(24px, env(safe-area-inset-right));
+  padding-bottom: max(32px, env(safe-area-inset-bottom));
+}
+.toast {
+  bottom: max(24px, env(safe-area-inset-bottom));
 }
 
 @media (prefers-reduced-motion: reduce) {

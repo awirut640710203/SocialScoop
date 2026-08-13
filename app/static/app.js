@@ -107,19 +107,44 @@
     }
   }
 
-  // สำรองไว้สำหรับเบราว์เซอร์/หน้าที่ไม่ใช่ HTTPS ซึ่ง Clipboard API ใช้ไม่ได้
+  // สำรองไว้เมื่อ Clipboard API ใช้ไม่ได้ — เกิดเสมอเมื่อเปิดผ่าน http:// ธรรมดา
+  // (เช่นเปิดจาก iPhone มาที่เครื่องนี้ในวง Wi-Fi เดียวกัน) เพราะ Clipboard API
+  // ต้องการ secure context คือ https หรือ localhost เท่านั้น
+  //
+  // iOS Safari มีข้อกำหนดต่างจากเบราว์เซอร์อื่น: ta.select() บน textarea ที่เป็น
+  // readonly จะไม่เลือกข้อความให้จริง ต้องตั้ง contentEditable แล้วใช้ Range
+  // ร่วมกับ setSelectionRange จึงจะคัดลอกได้
   function fallbackCopy(text, done) {
     var ta = document.createElement("textarea");
     ta.value = text;
-    ta.setAttribute("readonly", "");
-    ta.style.position = "fixed";
-    ta.style.opacity = "0";
+    ta.contentEditable = "true";
+    ta.readOnly = false;
+    // วางไว้ในจอจริงแต่มองไม่เห็น ถ้าใช้ display:none หรือย้ายออกนอกจอ
+    // iOS จะไม่ยอมเลือกข้อความให้ และต้อง >=16px กันหน้าเด้งซูมชั่ววินาที
+    ta.style.cssText =
+      "position:fixed;top:50%;left:0;width:1px;height:1px;padding:0;border:none;" +
+      "outline:none;opacity:0;font-size:16px;";
     document.body.appendChild(ta);
-    ta.select();
+
     var ok = false;
-    try { ok = document.execCommand("copy"); } catch (e) { ok = false; }
+    try {
+      var range = document.createRange();
+      range.selectNodeContents(ta);
+      var sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+      ta.setSelectionRange(0, text.length);
+      ok = document.execCommand("copy");
+    } catch (e) {
+      ok = false;
+    }
+
     document.body.removeChild(ta);
-    if (ok) { done(); } else { showToast("คัดลอกไม่สำเร็จ กรุณาคัดลอกเอง"); }
+    if (ok) {
+      done();
+    } else {
+      showToast("คัดลอกอัตโนมัติไม่ได้ — แตะค้างที่ข้อความเพื่อคัดลอกเอง");
+    }
   }
 
   function copyButton(text, ariaLabel) {
@@ -406,6 +431,13 @@
     var a = document.createElement("a");
     a.href = url;
     a.download = filename;
+    // iOS Safari รุ่นเก่าไม่รองรับแอตทริบิวต์ download กับ blob: จะเปิดไฟล์เป็นหน้าใหม่แทน
+    // อย่างน้อยผู้ใช้ยังเห็นเนื้อหาแล้วคัดลอกเองได้ ไม่ใช่กดแล้วเงียบไปเฉย ๆ
+    if (!("download" in a)) {
+      a.target = "_blank";
+      a.rel = "noopener";
+      showToast("อุปกรณ์นี้จะเปิดไฟล์แทนการบันทึก");
+    }
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);

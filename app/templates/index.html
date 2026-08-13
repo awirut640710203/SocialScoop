@@ -2,7 +2,13 @@
 <html lang="th">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <!-- viewport-fit=cover ให้เนื้อหาเต็มจอบน iPhone ที่มีรอยบาก
+       (CSS ใช้ env(safe-area-inset-*) กันไม่ให้เนื้อหาไปอยู่ใต้รอยบาก)
+       ไม่ใส่ maximum-scale/user-scalable=no เพราะจะปิดการซูมของผู้ใช้ซึ่งผิดหลักการเข้าถึง -->
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="color-scheme" content="light dark" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="SocialScoop" />
   <title>SocialScoop — ดาวน์โหลดวิดีโอพร้อมข้อมูลโพสต์</title>
   <link rel="stylesheet" href="/static/fonts.css" />
   <link rel="stylesheet" href="/static/style.css" />
