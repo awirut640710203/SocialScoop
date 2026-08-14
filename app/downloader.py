@@ -6,6 +6,8 @@
 """
 
 import os
+import threading
+import time
 from pathlib import Path
 
 import requests
@@ -15,6 +17,39 @@ from . import threads_extractor
 from .extract import build_details, detect_platform
 
 DOWNLOAD_DIR = Path("downloads")
+
+# แคชผลลัพธ์การดึงข้อมูล (yt-dlp info dict หรือ Threads media node) ไว้ชั่วคราว
+# คีย์ด้วย url ตรงๆ — ผู้ใช้งานจริงมักกด "ดึงข้อมูล" (แสดงการ์ดพรีวิว) แล้วค่อยกด
+# "ดาวน์โหลด" ทีหลังไม่กี่วินาที ถ้าไม่แคชไว้ ทั้งสองขั้นตอนจะต้องยิงไปหา TikTok/
+# Instagram/Threads แยกกันคนละรอบ ทำให้ช้าลงเท่าตัวและเพิ่มโอกาสโดน anti-bot บล็อก
+# โดยไม่จำเป็น (ยิ่งยิงถี่ยิ่งเสี่ยง) TTL สั้นๆ พอ เพราะ URL ของไฟล์วิดีโอที่เซ็นชื่อไว้
+# (CDN signed URL) มีอายุเป็นชั่วโมง ไม่ใช่นาที จึงไม่มีความเสี่ยงเรื่องลิงก์หมดอายุ
+_CACHE_TTL_SECONDS = 300
+_cache: dict[str, tuple[float, dict]] = {}
+_cache_lock = threading.Lock()
+
+
+def _cache_get(url: str) -> dict | None:
+    with _cache_lock:
+        entry = _cache.get(url)
+        if not entry:
+            return None
+        expires_at, value = entry
+        if time.monotonic() > expires_at:
+            del _cache[url]
+            return None
+        return value
+
+
+def _cache_set(url: str, value: dict) -> None:
+    with _cache_lock:
+        now = time.monotonic()
+        # เก็บกวาดของหมดอายุทุกครั้งที่เขียน กันแคชโตไม่มีที่สิ้นสุดโดยไม่ต้องมี background thread
+        expired = [k for k, (exp, _) in _cache.items() if exp < now]
+        for k in expired:
+            del _cache[k]
+        _cache[url] = (now + _CACHE_TTL_SECONDS, value)
+
 
 # เบราว์เซอร์ที่ yt-dlp ดึงคุกกี้ได้ — ตั้งผ่าน .env เช่น SOCIALSCOOP_COOKIES_BROWSER=chrome
 SUPPORTED_COOKIE_BROWSERS = {
@@ -135,9 +170,11 @@ def fetch_metadata(url: str) -> dict:
     # Threads ไม่มี extractor ใน yt-dlp เลย ต้องใช้ตัวดึงข้อมูลของเราเอง (ดู threads_extractor.py)
     if detect_platform(url) == "threads":
         try:
-            return threads_extractor.fetch_metadata(url)
+            node = threads_extractor.fetch_node(url)
         except threads_extractor.ThreadsExtractError as exc:
             raise DownloadError(str(exc)) from exc
+        _cache_set(url, {"kind": "threads", "node": node})
+        return threads_extractor.build_details(node, url)
 
     opts = _build_opts({"skip_download": True})
 
@@ -159,14 +196,22 @@ def fetch_metadata(url: str) -> dict:
             raise DownloadError("ลิงก์นี้ไม่มีวิดีโออยู่ข้างใน")
         info = entries[0]
 
+    _cache_set(url, {"kind": "ytdlp", "info": info})
     return build_details(info)
 
 
 def _download_threads_video(url: str, output_dir: Path) -> dict:
-    try:
-        details, video_url = threads_extractor.fetch_media(url)
-    except threads_extractor.ThreadsExtractError as exc:
-        raise DownloadError(str(exc)) from exc
+    cached = _cache_get(url)
+    if cached and cached["kind"] == "threads":
+        node = cached["node"]
+    else:
+        try:
+            node = threads_extractor.fetch_node(url)
+        except threads_extractor.ThreadsExtractError as exc:
+            raise DownloadError(str(exc)) from exc
+
+    details = threads_extractor.build_details(node, url)
+    video_url = threads_extractor.best_video_url(node)
 
     if not video_url:
         raise DownloadError("โพสต์นี้เป็นรูปภาพ ไม่มีวิดีโอให้ดาวน์โหลด")
@@ -212,9 +257,20 @@ def download_video(url: str, output_dir: Path | str = DOWNLOAD_DIR) -> dict:
         "restrictfilenames": True,
     })
 
+    # ถ้าเพิ่งดึงรายละเอียดโพสต์นี้ไปหมาดๆ (ผู้ใช้กด "ดึงข้อมูล" ก่อนแล้วค่อยกด
+    # "ดาวน์โหลด") ใช้ info ที่มีอยู่แล้วแทนการดึงหน้าเว็บซ้ำอีกรอบ — process_ie_result
+    # จะข้ามขั้นตอนขอหน้าเว็บ+แก้ anti-bot challenge ไปเลย ยิงตรงไปที่ URL ไฟล์วิดีโอ
+    # ที่ resolve ไว้แล้ว เร็วขึ้นมาก และลดจำนวนครั้งที่โดน anti-bot ตรวจจับด้วย
+    # (ทดสอบแล้วว่าไฟล์ที่ได้ตรงกับดาวน์โหลดสดทุกกรณี — ดูรายละเอียดใน commit message)
+    cached = _cache_get(url)
+    cached_info = cached["info"] if cached and cached["kind"] == "ytdlp" else None
+
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
-            info = ydl.extract_info(url, download=True)
+            if cached_info is not None:
+                info = ydl.process_ie_result(cached_info, download=True)
+            else:
+                info = ydl.extract_info(url, download=True)
             if info.get("_type") == "playlist":
                 entries = [e for e in (info.get("entries") or []) if e]
                 if not entries:

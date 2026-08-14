@@ -156,8 +156,12 @@ def fetch_page_html(url: str) -> str:
             )
             try:
                 page = browser.new_page(user_agent=USER_AGENT)
-                page.goto(url, wait_until="networkidle", timeout=30000)
-                page.wait_for_timeout(1200)
+                # ข้อมูลโพสต์ (video_versions/caption ฯลฯ) มาจาก server-side render ฝังอยู่ใน
+                # HTML ตั้งแต่แรกอยู่แล้ว ไม่ได้โหลดทีหลังด้วย JS จึงไม่ต้องรอ networkidle
+                # (ซึ่งรอ tracking/analytics beacon เบื้องหลังที่ไม่เกี่ยวด้วย เสียเวลาเปล่า
+                # ~2 วินาทีต่อครั้ง — วัดจริงแล้วก่อนแก้) แค่ domcontentloaded ก็พอ
+                page.goto(url, wait_until="domcontentloaded", timeout=30000)
+                page.wait_for_timeout(300)
                 return page.content()
             finally:
                 browser.close()
@@ -167,17 +171,12 @@ def fetch_page_html(url: str) -> str:
         raise ThreadsExtractError(f"เปิดหน้า Threads ไม่สำเร็จ: {exc}") from exc
 
 
-def fetch_metadata(url: str) -> dict:
-    """ดึงรายละเอียดโพสต์โดยไม่ดาวน์โหลดไฟล์วิดีโอ"""
+def fetch_node(url: str) -> dict:
+    """ดึง media node ของโพสต์จริงจาก Threads (เปิด Chromium จริง)
+
+    downloader.py เป็นคนเรียกฟังก์ชันนี้โดยตรงแล้วแคชผลลัพธ์ไว้ใช้ซ้ำตอนดาวน์โหลด
+    (ดู downloader.py: _cache_*) เพื่อไม่ต้องเปิด Chromium ใหม่ทั้งที่เพิ่งดึงเมื่อกี้นี้เอง
+    """
     shortcode = shortcode_from_url(url)
     html = fetch_page_html(url)
-    node = parse_post_node(html, shortcode)
-    return build_details(node, url)
-
-
-def fetch_media(url: str) -> tuple[dict, str | None]:
-    """คืน (details, video_url) — video_url เป็น None ถ้าโพสต์นี้ไม่มีวิดีโอ (เป็นโพสต์รูปภาพล้วน)"""
-    shortcode = shortcode_from_url(url)
-    html = fetch_page_html(url)
-    node = parse_post_node(html, shortcode)
-    return build_details(node, url), best_video_url(node)
+    return parse_post_node(html, shortcode)
