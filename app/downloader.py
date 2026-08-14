@@ -216,8 +216,10 @@ def _download_threads_video(url: str, output_dir: Path) -> dict:
     if not video_url:
         raise DownloadError("โพสต์นี้เป็นรูปภาพ ไม่มีวิดีโอให้ดาวน์โหลด")
 
-    shortcode = threads_extractor.shortcode_from_url(url)
-    video_path = output_dir / f"{shortcode}.mp4"
+    # ใช้ code จาก node ที่ parse มาแล้วโดยตรง แทนการแกะ shortcode จาก url ที่ผู้ใช้วางมา
+    # เพราะลิงก์แชร์ (threads.com/share/xxxxx/) ไม่มี /post/ ในตัวเอง ต้องรอ redirect
+    # ก่อนถึงจะรู้ shortcode จริง — node['code'] คือค่าที่ resolve แล้วเสมอ
+    video_path = output_dir / f"{node['code']}.mp4"
 
     try:
         with requests.get(video_url, stream=True, timeout=60) as resp:

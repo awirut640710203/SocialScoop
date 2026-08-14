@@ -164,3 +164,28 @@ class TestThreadsCacheReuse:
         downloader.download_video(THREADS_URL, tmp_path)
 
         assert calls == [THREADS_URL]
+
+    def test_ลิงก์แชร์ไม่มี_post_ในตัวเองก็ดาวน์โหลดได้(self, monkeypatch, tmp_path):
+        # threads.com/share/xxxxx/ ไม่มี "/post/" ในตัวเอง — ชื่อไฟล์ต้องมาจาก
+        # node['code'] ที่ resolve หลัง redirect แล้ว ไม่ใช่แกะจาก url ตรงๆ (เคยพังมาแล้ว)
+        share_url = "https://www.threads.com/share/_gPhmX3c8/"
+        monkeypatch.setattr(threads_extractor, "fetch_node", lambda url: THREADS_NODE)
+
+        class FakeResp:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def raise_for_status(self):
+                pass
+
+            def iter_content(self, chunk_size):
+                return [b"video-bytes"]
+
+        monkeypatch.setattr(downloader.requests, "get", lambda *a, **k: FakeResp())
+
+        result = downloader.download_video(share_url, tmp_path)
+
+        assert result["filename"] == "DJDNCztRGb1.mp4"

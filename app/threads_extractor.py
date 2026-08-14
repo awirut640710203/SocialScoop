@@ -144,7 +144,13 @@ def build_details(node: dict, url: str) -> dict:
     }
 
 
-def fetch_page_html(url: str) -> str:
+def fetch_page_html(url: str) -> tuple[str, str]:
+    """คืน (html, final_url) — final_url คือ URL หลัง redirect ถ้ามี
+
+    ลิงก์แชร์แบบ threads.com/share/xxxxx/ ไม่มี /post/ ในตัวเอง แต่พาไปที่โพสต์จริง
+    (.../@user/post/รหัส) ผ่าน redirect ของเบราว์เซอร์ — ต้องอ่าน shortcode จาก URL
+    หลัง redirect เท่านั้น อ่านจาก url ที่ผู้ใช้วางมาตรงๆ ไม่ได้เสมอไป
+    """
     try:
         with sync_playwright() as p:
             # --no-sandbox จำเป็นตอนรันเป็น non-root ใน container (Render ฯลฯ) เพราะ
@@ -172,7 +178,7 @@ def fetch_page_html(url: str) -> str:
                 # ~2 วินาทีต่อครั้ง — วัดจริงแล้วก่อนแก้) แค่ domcontentloaded ก็พอ
                 page.goto(url, wait_until="domcontentloaded", timeout=30000)
                 page.wait_for_timeout(300)
-                return page.content()
+                return page.content(), page.url
             finally:
                 browser.close()
     except PlaywrightTimeoutError as exc:
@@ -187,6 +193,6 @@ def fetch_node(url: str) -> dict:
     downloader.py เป็นคนเรียกฟังก์ชันนี้โดยตรงแล้วแคชผลลัพธ์ไว้ใช้ซ้ำตอนดาวน์โหลด
     (ดู downloader.py: _cache_*) เพื่อไม่ต้องเปิด Chromium ใหม่ทั้งที่เพิ่งดึงเมื่อกี้นี้เอง
     """
-    shortcode = shortcode_from_url(url)
-    html = fetch_page_html(url)
+    html, final_url = fetch_page_html(url)
+    shortcode = shortcode_from_url(final_url)
     return parse_post_node(html, shortcode)
