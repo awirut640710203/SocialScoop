@@ -122,3 +122,50 @@ def healthz():
     BasicAuthMiddleware ไว้ (ดู app/auth.py: UNAUTHENTICATED_PATHS)
     """
     return {"ok": True}
+
+
+# [DBG-th01] endpoint ชั่วคราวสำหรับ debug ว่า Threads fetch ช้าตรงขั้นไหนบน Render
+# (launch เบราว์เซอร์ / new_page / goto+content) ลบทิ้งหลัง debug เสร็จ
+@app.get("/api/_debug/threads-timing")
+def debug_threads_timing(
+    url: str = "https://www.threads.com/@humblemogger/post/DTOPIHBkgte/",
+):
+    import time
+
+    from playwright.sync_api import sync_playwright
+
+    timings = {}
+    t_start = time.time()
+    with sync_playwright() as p:
+        t_pw = time.time()
+        timings["sync_playwright_start"] = round(t_pw - t_start, 3)
+
+        browser = p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-setuid-sandbox"])
+        t_launch = time.time()
+        timings["chromium_launch"] = round(t_launch - t_pw, 3)
+
+        page = browser.new_page()
+        t_page = time.time()
+        timings["new_page"] = round(t_page - t_launch, 3)
+
+        page.route(
+            "**/*",
+            lambda route: route.abort()
+            if route.request.resource_type in ("image", "stylesheet", "font", "media")
+            else route.continue_(),
+        )
+        page.goto(url, wait_until="domcontentloaded", timeout=30000)
+        t_goto = time.time()
+        timings["goto_domcontentloaded"] = round(t_goto - t_page, 3)
+
+        html = page.content()
+        t_content = time.time()
+        timings["content"] = round(t_content - t_goto, 3)
+        timings["has_data"] = "video_versions" in html or "image_versions2" in html
+
+        browser.close()
+        t_close = time.time()
+        timings["browser_close"] = round(t_close - t_content, 3)
+
+    timings["total"] = round(time.time() - t_start, 3)
+    return timings
