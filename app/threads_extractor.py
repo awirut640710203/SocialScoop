@@ -156,6 +156,16 @@ def fetch_page_html(url: str) -> str:
             )
             try:
                 page = browser.new_page(user_agent=USER_AGENT)
+                # เราอ่านแค่ HTML/JSON ที่ฝังมากับหน้า ไม่เคยต้องเห็นภาพจริงเลย —
+                # บล็อกรูป/ฟอนต์/CSS/วิดีโอทิ้งไปตั้งแต่ระดับ network request ประหยัดทั้ง
+                # เวลาโหลดและ CPU ตอน decode/render ซึ่งมีผลมากเป็นพิเศษบน container ที่
+                # จำกัด CPU อย่าง Render free tier (วัดจริง: ลด fetch จาก ~14s เหลือดีขึ้นมาก)
+                page.route(
+                    "**/*",
+                    lambda route: route.abort()
+                    if route.request.resource_type in ("image", "stylesheet", "font", "media")
+                    else route.continue_(),
+                )
                 # ข้อมูลโพสต์ (video_versions/caption ฯลฯ) มาจาก server-side render ฝังอยู่ใน
                 # HTML ตั้งแต่แรกอยู่แล้ว ไม่ได้โหลดทีหลังด้วย JS จึงไม่ต้องรอ networkidle
                 # (ซึ่งรอ tracking/analytics beacon เบื้องหลังที่ไม่เกี่ยวด้วย เสียเวลาเปล่า
