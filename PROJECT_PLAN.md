@@ -65,7 +65,12 @@ resp = requests.post("https://openrouter.ai/api/v1/chat/completions",
 - ต้องเป็นโพสต์ public
 
 ### Threads
-- yt-dlp รองรับอยู่แล้ว (อัปเดต yt-dlp ให้ล่าสุดเสมอ: `pip install -U yt-dlp`)
+- **yt-dlp ไม่รองรับเลย** (feature request ค้างมาหลายปี — yt-dlp/yt-dlp#7523, #10133) ตกไปใช้
+  generic extractor ซึ่งใช้ไม่ได้เพราะหน้าโพสต์ต้องรัน JS ถึงจะได้ข้อมูล
+- reverse-engineered GraphQL API (ตามแนวทาง m1guelpf/threads-re) ก็ทดสอบแล้วใช้ไม่ได้แล้วเช่นกัน
+  (doc_id หมดอายุเร็วกว่าที่จะ maintain เองไหว)
+- แก้ด้วยการเปิด headless Chromium จริงผ่าน Playwright แล้วดึง JSON ของโพสต์ที่ฝังอยู่ในหน้าออกมา
+  (ดู `app/threads_extractor.py`) — ต้องรัน `playwright install chromium` เพิ่มหนึ่งครั้งหลัง pip install
 - ต้องเป็นโพสต์ public
 
 ---

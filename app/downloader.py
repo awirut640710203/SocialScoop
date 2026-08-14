@@ -8,9 +8,11 @@
 import os
 from pathlib import Path
 
+import requests
 import yt_dlp
 
-from .extract import build_details
+from . import threads_extractor
+from .extract import build_details, detect_platform
 
 DOWNLOAD_DIR = Path("downloads")
 
@@ -125,6 +127,13 @@ def fetch_metadata(url: str) -> dict:
     Returns: dict ตามโครงสร้างของ build_details()
     Raises: DownloadError ถ้าดึงไม่สำเร็จ
     """
+    # Threads ไม่มี extractor ใน yt-dlp เลย ต้องใช้ตัวดึงข้อมูลของเราเอง (ดู threads_extractor.py)
+    if detect_platform(url) == "threads":
+        try:
+            return threads_extractor.fetch_metadata(url)
+        except threads_extractor.ThreadsExtractError as exc:
+            raise DownloadError(str(exc)) from exc
+
     opts = _build_opts({"skip_download": True})
 
     try:
@@ -148,6 +157,35 @@ def fetch_metadata(url: str) -> dict:
     return build_details(info)
 
 
+def _download_threads_video(url: str, output_dir: Path) -> dict:
+    try:
+        details, video_url = threads_extractor.fetch_media(url)
+    except threads_extractor.ThreadsExtractError as exc:
+        raise DownloadError(str(exc)) from exc
+
+    if not video_url:
+        raise DownloadError("โพสต์นี้เป็นรูปภาพ ไม่มีวิดีโอให้ดาวน์โหลด")
+
+    shortcode = threads_extractor.shortcode_from_url(url)
+    video_path = output_dir / f"{shortcode}.mp4"
+
+    try:
+        with requests.get(video_url, stream=True, timeout=60) as resp:
+            resp.raise_for_status()
+            with open(video_path, "wb") as f:
+                for chunk in resp.iter_content(chunk_size=1 << 16):
+                    f.write(chunk)
+    except requests.RequestException as exc:
+        video_path.unlink(missing_ok=True)
+        raise DownloadError(f"โหลดไฟล์วิดีโอไม่สำเร็จ: {exc}") from exc
+
+    return {
+        "video_path": str(video_path),
+        "filename": video_path.name,
+        "details": details,
+    }
+
+
 def download_video(url: str, output_dir: Path | str = DOWNLOAD_DIR) -> dict:
     """ดาวน์โหลดวิดีโอคุณภาพสูงสุดเท่าที่โพสต์นั้นมี พร้อมไฟล์คำบรรยายและข้อมูลกำกับ
 
@@ -156,6 +194,9 @@ def download_video(url: str, output_dir: Path | str = DOWNLOAD_DIR) -> dict:
     """
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
+
+    if detect_platform(url) == "threads":
+        return _download_threads_video(url, output_dir)
 
     opts = _build_opts({
         "format": FORMAT_SPEC,

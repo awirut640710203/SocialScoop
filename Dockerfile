@@ -18,14 +18,23 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Threads ไม่มี extractor ใน yt-dlp เลย ต้องเปิด Chromium จริงเพื่อดึงข้อมูล
+# (ดู app/threads_extractor.py) — ตั้ง PLAYWRIGHT_BROWSERS_PATH ไว้นอก /root ตั้งแต่แรก
+# เพราะ /root เองมีสิทธิ์ 700 (เข้าได้เฉพาะ root) ต่อให้ chown โฟลเดอร์ย่อยให้ appuser
+# ทีหลัง appuser ก็ยังเดินผ่าน /root เข้าไปไม่ได้อยู่ดี ต้องแยกไปไว้ path อื่นตั้งแต่ install
+# --with-deps ลง shared library ของระบบที่ Chromium ต้องใช้ด้วย (fonts, libnss3 ฯลฯ)
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+RUN playwright install --with-deps chromium
+
 COPY app/ ./app/
 
 # รันด้วย user ที่ไม่ใช่ root ตามหลักปฏิบัติด้านความปลอดภัย
 # ต้อง chown /app ให้ appuser ก่อนสลับ user เพราะ downloader.py จะสร้างโฟลเดอร์
 # downloads/ เองตอนรันไทม์ (mkdir(parents=True)) — ถ้า /app ยังเป็นของ root
 # appuser จะไม่มีสิทธิ์สร้างโฟลเดอร์นั้น แล้วดาวน์โหลดครั้งแรกจะพังทันที
+# ต้อง chown /ms-playwright ด้วยเหตุผลเดียวกัน ไม่งั้น appuser หา Chromium ไม่เจอ
 RUN useradd --create-home --uid 1000 appuser \
-    && chown -R appuser:appuser /app
+    && chown -R appuser:appuser /app /ms-playwright
 USER appuser
 
 # Render (และ container platform ส่วนใหญ่) กำหนดพอร์ตผ่าน environment variable

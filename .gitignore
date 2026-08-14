@@ -5,3 +5,7 @@ __pycache__/
 downloads/
 cookies.txt
 .pytest_cache/
+
+# repo อ้างอิงของ instagrapi ที่วางไว้ตรวจโค้ดเฉยๆ ไม่ได้ใช้ในแอปจริง (ดูสรุปที่คุยกันไว้
+# ว่าใช้ไม่ได้จริงทั้ง Threads และ Instagram แบบไม่ล็อกอิน) ไม่ควรอยู่ใน git history
+instagrapi-master/

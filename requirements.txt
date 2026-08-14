@@ -4,6 +4,16 @@ fastapi>=0.120
 uvicorn[standard]>=0.38
 jinja2>=3.1
 
+# ให้ yt-dlp ปลอมลายนิ้วมือ TLS เป็นเบราว์เซอร์จริงตอนคุยกับ TikTok/Instagram (ช่วยผ่าน
+# anti-bot ได้มากขึ้นอย่างมีนัยสำคัญ — ทดสอบแล้ว) ต้องเป็นเวอร์ชัน 0.10.x-0.15.x เท่านั้น
+# ตามที่ yt-dlp กำหนด เวอร์ชันใหม่กว่านี้ (เช่น 0.16+) จะถูก yt-dlp ปฏิเสธเงียบๆ
+curl_cffi>=0.10,<0.16
+
+# Threads (threads.net/threads.com) — yt-dlp ไม่รองรับเลย ต้องเปิด headless Chromium
+# จริงเพื่อดึงข้อมูลโพสต์ (ดู app/threads_extractor.py) หลัง pip install ต้องรันเพิ่ม:
+#   playwright install chromium
+playwright>=1.62
+
 # สำหรับรันเทสต์
 pytest>=9.0
 httpx>=0.28
