@@ -84,8 +84,13 @@ def _friendly_error(exc: Exception) -> str:
     text = str(exc)
     lowered = text.lower()
 
-    # TikTok ตอบหน้าเปล่าให้คำขอที่ดูเหมือนบอท — เกิดบ่อยเมื่อยิงถี่หรือไม่มีคุกกี้
-    if "universal data" in lowered or "rehydration" in lowered:
+    # TikTok ตอบหน้าเปล่า/ปฏิเสธ challenge ให้คำขอที่ดูเหมือนบอท — เกิดบ่อยเมื่อยิงถี่,
+    # ไม่มีคุกกี้, หรือยิงจาก IP ของผู้ให้บริการคลาวด์ (เช่น Render) ที่ TikTok ขึ้นบัญชีดำไว้
+    if (
+        "universal data" in lowered
+        or "rehydration" in lowered
+        or "unexpected response" in lowered
+    ):
         if cookie_browser():
             return (
                 "TikTok ปฏิเสธคำขอนี้ชั่วคราว — รอสัก 1-2 นาทีแล้วลองอีกครั้ง "
