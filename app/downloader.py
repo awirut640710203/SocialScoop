@@ -200,7 +200,7 @@ def fetch_metadata(url: str) -> dict:
     return build_details(info)
 
 
-def _download_threads_video(url: str, output_dir: Path) -> dict:
+def _download_threads_media(url: str, output_dir: Path) -> dict:
     cached = _cache_get(url)
     if cached and cached["kind"] == "threads":
         node = cached["node"]
@@ -212,28 +212,32 @@ def _download_threads_video(url: str, output_dir: Path) -> dict:
 
     details = threads_extractor.build_details(node, url)
     video_url = threads_extractor.best_video_url(node)
+    # โพสต์รูปภาพล้วน (ไม่มีวิดีโอ) ก็ต้องดาวน์โหลดได้ — ใช้รูปคุณภาพดีที่สุดแทน
+    image_url = None if video_url else threads_extractor.best_thumbnail_url(node)
+    media_url = video_url or image_url
 
-    if not video_url:
-        raise DownloadError("โพสต์นี้เป็นรูปภาพ ไม่มีวิดีโอให้ดาวน์โหลด")
+    if not media_url:
+        raise DownloadError("โพสต์นี้ไม่มีวิดีโอหรือรูปภาพให้ดาวน์โหลด")
 
     # ใช้ code จาก node ที่ parse มาแล้วโดยตรง แทนการแกะ shortcode จาก url ที่ผู้ใช้วางมา
     # เพราะลิงก์แชร์ (threads.com/share/xxxxx/) ไม่มี /post/ ในตัวเอง ต้องรอ redirect
     # ก่อนถึงจะรู้ shortcode จริง — node['code'] คือค่าที่ resolve แล้วเสมอ
-    video_path = output_dir / f"{node['code']}.mp4"
+    ext = "mp4" if video_url else "jpg"
+    media_path = output_dir / f"{node['code']}.{ext}"
 
     try:
-        with requests.get(video_url, stream=True, timeout=60) as resp:
+        with requests.get(media_url, stream=True, timeout=60) as resp:
             resp.raise_for_status()
-            with open(video_path, "wb") as f:
+            with open(media_path, "wb") as f:
                 for chunk in resp.iter_content(chunk_size=1 << 16):
                     f.write(chunk)
     except requests.RequestException as exc:
-        video_path.unlink(missing_ok=True)
-        raise DownloadError(f"โหลดไฟล์วิดีโอไม่สำเร็จ: {exc}") from exc
+        media_path.unlink(missing_ok=True)
+        raise DownloadError(f"โหลดไฟล์{'วิดีโอ' if video_url else 'รูปภาพ'}ไม่สำเร็จ: {exc}") from exc
 
     return {
-        "video_path": str(video_path),
-        "filename": video_path.name,
+        "video_path": str(media_path),
+        "filename": media_path.name,
         "details": details,
     }
 
@@ -248,7 +252,7 @@ def download_video(url: str, output_dir: Path | str = DOWNLOAD_DIR) -> dict:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     if detect_platform(url) == "threads":
-        return _download_threads_video(url, output_dir)
+        return _download_threads_media(url, output_dir)
 
     opts = _build_opts({
         "format": FORMAT_SPEC,

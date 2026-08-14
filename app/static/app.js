@@ -387,15 +387,21 @@
   function buildActionRow(details) {
     var row = el("div", "action-row");
 
-    var videoBtn = el("button", "btn-ghost");
-    videoBtn.type = "button";
-    videoBtn.appendChild(icon(ICONS.download));
-    var videoLabel = details.resolution
-      ? "วิดีโอ " + details.resolution
-      : "วิดีโอ";
-    videoBtn.appendChild(document.createTextNode(videoLabel));
-    videoBtn.addEventListener("click", function () { startDownload(videoBtn); });
-    row.appendChild(videoBtn);
+    // Threads โพสต์ข้อความล้วน (ไม่มีรูป/วิดีโอ) media_type จะเป็น null ตรงๆ —
+    // ต่างจาก TikTok/Instagram ที่ไม่มีฟิลด์นี้เลย (undefined ก็ยังถือว่ามีวิดีโอเสมอ
+    // ตามพฤติกรรมเดิม) ไม่งั้นจะมีปุ่มที่กดแล้วพังทุกครั้งให้ผู้ใช้เห็น
+    if (details.media_type !== null) {
+      var isImage = details.media_type === "image";
+      var mediaBtn = el("button", "btn-ghost");
+      mediaBtn.type = "button";
+      mediaBtn.appendChild(icon(ICONS.download));
+      var mediaLabel = isImage
+        ? "รูปภาพ"
+        : (details.resolution ? "วิดีโอ " + details.resolution : "วิดีโอ");
+      mediaBtn.appendChild(document.createTextNode(mediaLabel));
+      mediaBtn.addEventListener("click", function () { startDownload(mediaBtn, isImage); });
+      row.appendChild(mediaBtn);
+    }
 
     if (details.caption) {
       var capBtn = el("button", "btn-ghost");
@@ -444,13 +450,13 @@
     setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
   }
 
-  function startDownload(btn) {
+  function startDownload(btn, isImage) {
     if (state.downloading || !state.url) return;
     state.downloading = true;
     btn.disabled = true;
     var originalNodes = Array.prototype.slice.call(btn.childNodes);
     btn.textContent = "กำลังดาวน์โหลด...";
-    showToast("กำลังดาวน์โหลดวิดีโอ อาจใช้เวลาสักครู่");
+    showToast(isImage ? "กำลังดาวน์โหลดรูปภาพ อาจใช้เวลาสักครู่" : "กำลังดาวน์โหลดวิดีโอ อาจใช้เวลาสักครู่");
 
     postJSON("/api/download", { url: state.url })
       .then(function (data) {

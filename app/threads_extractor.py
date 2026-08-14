@@ -118,6 +118,18 @@ def _upload_date(node: dict) -> str | None:
     return datetime.fromtimestamp(taken_at, tz=timezone.utc).strftime("%Y%m%d")
 
 
+def media_type(node: dict) -> str | None:
+    """"video" ถ้ามีวิดีโอให้โหลด, "image" ถ้ามีแต่รูป, None ถ้าไม่มีสื่อเลย (โพสต์ข้อความล้วน)
+
+    frontend ใช้ค่านี้ตัดสินใจว่าจะโชว์ปุ่ม "ดาวน์โหลดวิดีโอ" หรือ "ดาวน์โหลดรูปภาพ"
+    """
+    if best_video_url(node):
+        return "video"
+    if best_thumbnail_url(node):
+        return "image"
+    return None
+
+
 def build_details(node: dict, url: str) -> dict:
     """แปลง media node ให้เป็นโครงสร้างเดียวกับ extract.build_details() ที่ frontend ใช้"""
     caption = _caption_text(node)
@@ -141,6 +153,7 @@ def build_details(node: dict, url: str) -> dict:
             "view": None,
         },
         "resolution": None,
+        "media_type": media_type(node),
     }
 
 

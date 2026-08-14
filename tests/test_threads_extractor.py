@@ -12,6 +12,7 @@ from app.threads_extractor import (
     best_thumbnail_url,
     best_video_url,
     build_details,
+    media_type,
     parse_post_node,
     shortcode_from_url,
 )
@@ -96,6 +97,19 @@ class TestBestMedia:
         assert best_video_url(node) == "https://cdn.example.com/vid.mp4"
 
 
+class TestMediaType:
+    def test_มีวิดีโอคืน_video(self):
+        assert media_type(SAMPLE_NODE) == "video"
+
+    def test_มีแต่รูปคืน_image(self):
+        node = {**SAMPLE_NODE, "video_versions": []}
+        assert media_type(node) == "image"
+
+    def test_ไม่มีสื่อเลยคืน_none(self):
+        node = {**SAMPLE_NODE, "video_versions": [], "image_versions2": {"candidates": []}}
+        assert media_type(node) is None
+
+
 class TestBuildDetails:
     def test_แปลงข้อมูลครบ(self):
         details = build_details(SAMPLE_NODE, "https://www.threads.com/@guilfoilpr/post/DJDNCztRGb1")
@@ -109,6 +123,12 @@ class TestBuildDetails:
         assert details["stats"]["comment"] == "3"
         assert details["stats"]["view"] is None
         assert details["upload_date"] == "20250430"
+        assert details["media_type"] == "video"
+
+    def test_โพสต์รูปภาพล้วน_media_type_เป็น_image(self):
+        node = {**SAMPLE_NODE, "video_versions": []}
+        details = build_details(node, "https://www.threads.com/@guilfoilpr/post/DJDNCztRGb1")
+        assert details["media_type"] == "image"
 
     def test_โพสต์ไม่มีแคปชั่นเป็น_none(self):
         node = {**SAMPLE_NODE, "caption": None}

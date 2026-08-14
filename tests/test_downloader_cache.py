@@ -189,3 +189,58 @@ class TestThreadsCacheReuse:
         result = downloader.download_video(share_url, tmp_path)
 
         assert result["filename"] == "DJDNCztRGb1.mp4"
+
+
+class TestThreadsImageDownload:
+    """โพสต์รูปภาพล้วน (ไม่มีวิดีโอ) ก็ต้องดาวน์โหลดได้ ไม่ใช่ error ทันที"""
+
+    IMAGE_NODE = {
+        "code": "DJDNCztRGb1",
+        "user": {"username": "a"},
+        "caption": None,
+        "like_count": 0,
+        "video_versions": [],
+        "image_versions2": {"candidates": [{"url": "https://cdn.example.com/photo.jpg"}]},
+    }
+
+    NO_MEDIA_NODE = {
+        "code": "DJDNCztRGb1",
+        "user": {"username": "a"},
+        "caption": None,
+        "like_count": 0,
+        "video_versions": [],
+        "image_versions2": {"candidates": []},
+    }
+
+    def _fake_resp(self, monkeypatch):
+        class FakeResp:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def raise_for_status(self):
+                pass
+
+            def iter_content(self, chunk_size):
+                return [b"image-bytes"]
+
+        monkeypatch.setattr(downloader.requests, "get", lambda *a, **k: FakeResp())
+
+    def test_โพสต์รูปภาพดาวน์โหลดได้เป็น_jpg(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(threads_extractor, "fetch_node", lambda url: self.IMAGE_NODE)
+        self._fake_resp(monkeypatch)
+
+        result = downloader.download_video(THREADS_URL, tmp_path)
+
+        assert result["filename"] == "DJDNCztRGb1.jpg"
+        assert (tmp_path / "DJDNCztRGb1.jpg").read_bytes() == b"image-bytes"
+        assert result["details"]["media_type"] == "image"
+
+    def test_ไม่มีสื่อเลยแจ้ง_error_ชัดเจน(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(threads_extractor, "fetch_node", lambda url: self.NO_MEDIA_NODE)
+        self._fake_resp(monkeypatch)
+
+        with pytest.raises(downloader.DownloadError, match="ไม่มีวิดีโอหรือรูปภาพ"):
+            downloader.download_video(THREADS_URL, tmp_path)
