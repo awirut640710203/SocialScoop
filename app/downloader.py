@@ -176,7 +176,10 @@ def fetch_metadata(url: str) -> dict:
         _cache_set(url, {"kind": "threads", "node": node})
         return threads_extractor.build_details(node, url)
 
-    opts = _build_opts({"skip_download": True})
+    # getcomments: True เผื่อลิงก์สินค้าถูกแปะไว้ในคอมเมนต์แทนแคปชั่น (ดู extract.build_details)
+    # วัดจริงแล้วกับ Instagram เพิ่มเวลาแค่ ~0.17s เพราะเป็น API call เดียวจบ ไม่ paginate ต่อ
+    # TikTok extractor ไม่รองรับตัวเลือกนี้เลย — ใส่ไปก็แค่เฉยๆ ไม่มีผลอะไร ไม่พัง
+    opts = _build_opts({"skip_download": True, "getcomments": True})
 
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:

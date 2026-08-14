@@ -147,6 +147,26 @@ class TestBuildDetails:
         assert details["caption"] == "แคปชั่นอยู่ใน title #แท็ก"
         assert details["hashtags"] == ["#แท็ก"]
 
+    def test_ดึงลิงก์_shopee_จากคอมเมนต์ได้ด้วยไม่ใช่แค่แคปชั่น(self):
+        # ผู้โพสต์มักแปะลิงก์สินค้าไว้ที่คอมเมนต์ตัวเองแทนแคปชั่น (comments มีก็ต่อเมื่อ
+        # yt-dlp เรียกด้วย getcomments: True — ดู downloader.fetch_metadata)
+        info = {
+            "title": "รีวิวของ",
+            "description": "ของดีมาก",
+            "comments": [
+                {"text": "สวยมากเลยค่ะ"},
+                {"text": "ลิงก์สั่งซื้อ shp.ee/from-comment จ้า", "author": "ตัวเอง"},
+            ],
+        }
+        details = build_details(info)
+        assert details["caption"] == "ของดีมาก", "คอมเมนต์ไม่ควรถูกเอาไปแสดงเป็นแคปชั่นของโพสต์"
+        assert details["shopee_links"] == ["https://shp.ee/from-comment"]
+
+    def test_ไม่มี_comments_ไม่พัง(self):
+        # TikTok extractor ไม่รองรับ getcomments เลย — info จะไม่มีคีย์ comments
+        details = build_details({"title": "x", "description": "y"})
+        assert details["shopee_links"] == []
+
     def test_คลิปแนวตั้ง_1080x1920_ต้องอ่านว่า_1080p(self):
         # กันบั๊กเดิม: เคยรายงานเป็น "1920p" เพราะดูแต่ความสูง
         info = {"title": "x", "width": 1080, "height": 1920}

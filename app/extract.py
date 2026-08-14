@@ -126,6 +126,13 @@ def build_details(info: dict) -> dict:
     if not caption:
         caption = info.get("title") or ""
 
+    # ผู้โพสต์มักแปะลิงก์สินค้าไว้ที่คอมเมนต์ (มักเป็นคอมเมนต์ตัวเอง) แทนแคปชั่นตรงๆ
+    # เพราะแพลตฟอร์มมักลดการมองเห็นโพสต์ที่มีลิงก์นอกอยู่ในแคปชั่น — ต้องสแกนคอมเมนต์
+    # ด้วย ไม่ใช่แค่แคปชั่น (มีก็ต่อเมื่อเรียกด้วย getcomments: True เท่านั้น
+    # TikTok extractor ไม่รองรับคอมเมนต์เลยตอนนี้ ค่านี้จะไม่มีสำหรับ TikTok)
+    comment_texts = "\n".join(c.get("text") or "" for c in (info.get("comments") or []))
+    link_search_text = caption + "\n" + comment_texts
+
     return {
         "title": info.get("title") or None,
         "caption": caption or None,
@@ -136,7 +143,7 @@ def build_details(info: dict) -> dict:
         "duration": info.get("duration"),
         "upload_date": info.get("upload_date") or None,
         "hashtags": parse_hashtags(caption),
-        "shopee_links": find_shopee_links(caption),
+        "shopee_links": find_shopee_links(link_search_text),
         "stats": {
             "like": format_count(info.get("like_count")),
             "comment": format_count(info.get("comment_count")),

@@ -12,6 +12,7 @@ from app.threads_extractor import (
     best_thumbnail_url,
     best_video_url,
     build_details,
+    find_reply_captions,
     media_type,
     parse_post_node,
     shortcode_from_url,
@@ -71,6 +72,39 @@ class TestParsePostNode:
         )
         node = parse_post_node(html, "DJDNCztRGb1")
         assert node["code"] == "DJDNCztRGb1"
+
+
+class TestFindReplyCaptions:
+    def _wrap_thread_items(self, own_code, items, decoy_code=None, decoy_items=None):
+        payload = {
+            "data": {
+                "data": {"edges": [{"node": {"thread_items": items}}]},
+            }
+        }
+        if decoy_items is not None:
+            # จำลอง relatedPosts ที่ใช้คีย์ "thread_items" ชื่อเดียวกันแต่เป็นโพสต์คนละเรื่อง
+            payload["data"]["relatedPosts"] = {"threads": [{"thread_items": decoy_items}]}
+        return f'<html><body><script type="application/json">{json.dumps(payload)}</script></body></html>'
+
+    def test_ดึงแคปชั่นคอมเมนต์ของโพสต์เจอ(self):
+        items = [
+            {"post": {"code": "DJDNCztRGb1", "caption": {"text": "แคปชั่นหลัก"}}},
+            {"post": {"code": "reply1", "caption": {"text": "สนใจสั่งที่ shp.ee/xyz123 นะ"}}},
+        ]
+        html = self._wrap_thread_items("DJDNCztRGb1", items)
+        captions = find_reply_captions(html, "DJDNCztRGb1")
+        assert "สนใจสั่งที่ shp.ee/xyz123 นะ" in captions
+
+    def test_ไม่ดึงจาก_relatedPosts_ที่ไม่เกี่ยวข้อง(self):
+        items = [{"post": {"code": "DJDNCztRGb1", "caption": {"text": "แคปชั่นหลัก"}}}]
+        decoy = [{"post": {"code": "other999", "caption": {"text": "อย่าดึงอันนี้ shp.ee/should-not-appear"}}}]
+        html = self._wrap_thread_items("DJDNCztRGb1", items, decoy_items=decoy)
+        captions = find_reply_captions(html, "DJDNCztRGb1")
+        assert not any("should-not-appear" in c for c in captions)
+
+    def test_ไม่เจอ_thread_ของโพสต์นี้เลยคืนลิสต์ว่าง(self):
+        html = "<html><body><script type=\"application/json\">{}</script></body></html>"
+        assert find_reply_captions(html, "DJDNCztRGb1") == []
 
 
 class TestBestMedia:
@@ -136,3 +170,10 @@ class TestBuildDetails:
         assert details["caption"] is None
         assert details["hashtags"] == []
         assert details["shopee_links"] == []
+
+    def test_ดึงลิงก์_shopee_จากคอมเมนต์ได้ด้วยไม่ใช่แค่แคปชั่น(self):
+        # จำลองว่า fetch_node() แนบ _reply_captions ไว้แล้ว (ดู threads_extractor.fetch_node)
+        node = {**SAMPLE_NODE, "caption": None, "_reply_captions": ["ลิงก์สินค้า shp.ee/from-comment"]}
+        details = build_details(node, "https://www.threads.com/@guilfoilpr/post/DJDNCztRGb1")
+        assert details["caption"] is None, "คอมเมนต์ไม่ควรถูกเอาไปแสดงเป็นแคปชั่นของโพสต์"
+        assert details["shopee_links"] == ["https://shp.ee/from-comment"]

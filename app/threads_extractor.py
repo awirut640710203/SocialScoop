@@ -80,6 +80,50 @@ def parse_post_node(html: str, shortcode: str) -> dict:
     )
 
 
+def _find_thread_item_lists(obj: Any, results: list) -> None:
+    """เดินหาทุก list ที่อยู่ใต้คีย์ "thread_items" — ใช้ทั้งกับ reply จริงของโพสต์นี้
+    และโพสต์แนะนำที่ไม่เกี่ยวข้องเลย ("relatedPosts" ในหน้าใช้คีย์ชื่อเดียวกัน) ต้องกรอง
+    เอา list ที่ใช่จริงทีหลังด้วยการเทียบ shortcode (ดู find_reply_captions)
+    """
+    if isinstance(obj, dict):
+        items = obj.get("thread_items")
+        if isinstance(items, list):
+            results.append(items)
+        for value in obj.values():
+            _find_thread_item_lists(value, results)
+    elif isinstance(obj, list):
+        for item in obj:
+            _find_thread_item_lists(item, results)
+
+
+def find_reply_captions(html: str, shortcode: str) -> list[str]:
+    """ดึงข้อความคอมเมนต์ (reply) ใต้โพสต์นี้ จาก HTML เดิมที่โหลดมาแล้ว — ไม่ต้องขอเพิ่ม
+
+    ผู้โพสต์มักแปะลิงก์สินค้าไว้ที่คอมเมนต์แทนแคปชั่นตรงๆ (หลีกเลี่ยงการที่แพลตฟอร์ม
+    ลดการมองเห็นโพสต์ที่มีลิงก์นอกในแคปชั่น) จึงต้องสแกนคอมเมนต์หา Shopee link ด้วย
+    """
+    all_lists: list = []
+    for raw in _JSON_SCRIPT_RE.findall(html):
+        try:
+            data = json.loads(raw)
+        except (json.JSONDecodeError, ValueError):
+            continue
+        _find_thread_item_lists(data, all_lists)
+
+    for items in all_lists:
+        codes = {(item or {}).get("post", {}).get("code") for item in items if isinstance(item, dict)}
+        if shortcode in codes:
+            # เจอ list ที่มีโพสต์นี้อยู่จริง = thread ของโพสต์นี้เอง ไม่ใช่ relatedPosts ที่ไม่เกี่ยว
+            captions = []
+            for item in items:
+                text = _caption_text((item or {}).get("post") or {})
+                if text:
+                    captions.append(text)
+            return captions
+
+    return []
+
+
 def _first_media_with(node: dict, key: str) -> dict:
     """โพสต์แบบ carousel (หลายรูป/วิดีโอ) เก็บ media จริงไว้ใน carousel_media แทน node บนสุด"""
     if node.get(key):
@@ -136,6 +180,10 @@ def build_details(node: dict, url: str) -> dict:
     user = node.get("user") or {}
     reply_info = node.get("text_post_app_info") or {}
 
+    # เก็บไว้ตอน fetch_node() (ดูที่นั่น) — ลิงก์สินค้ามักถูกแปะไว้ที่คอมเมนต์แทนแคปชั่น
+    reply_captions = node.get("_reply_captions") or []
+    link_search_text = caption + "\n" + "\n".join(reply_captions)
+
     return {
         "title": caption or None,
         "caption": caption or None,
@@ -146,7 +194,7 @@ def build_details(node: dict, url: str) -> dict:
         "duration": None,
         "upload_date": _upload_date(node),
         "hashtags": parse_hashtags(caption),
-        "shopee_links": find_shopee_links(caption),
+        "shopee_links": find_shopee_links(link_search_text),
         "stats": {
             "like": format_count(node.get("like_count")),
             "comment": format_count(reply_info.get("direct_reply_count")),
@@ -208,4 +256,9 @@ def fetch_node(url: str) -> dict:
     """
     html, final_url = fetch_page_html(url)
     shortcode = shortcode_from_url(final_url)
-    return parse_post_node(html, shortcode)
+    node = parse_post_node(html, shortcode)
+    # แนบคอมเมนต์ไว้ในตัว node เลย (คีย์ขึ้นต้น _ = ใช้ภายในเท่านั้น ไม่ใช่ข้อมูลของโพสต์
+    # จริง) เพื่อให้ build_details() เอาไปสแกนหา Shopee link ต่อได้โดยไม่ต้อง parse
+    # หน้าเว็บซ้ำอีกรอบ — ข้อมูลนี้อยู่ใน html เดิมที่โหลดมาแล้วอยู่แล้ว ไม่มีต้นทุนเพิ่ม
+    node["_reply_captions"] = find_reply_captions(html, shortcode)
+    return node
