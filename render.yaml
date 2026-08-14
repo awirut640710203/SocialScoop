@@ -17,3 +17,9 @@ services:
         sync: false
       - key: SOCIALSCOOP_PASSWORD
         sync: false
+      # เสริมเมื่อ TikTok/Instagram ต้องใช้คุกกี้ (ดู downloader.py: cookie_file()) —
+      # ค่านี้ต้องชี้ไปที่ path ของ Secret File ที่อัปโหลดแยกไว้ ไม่ใช่เนื้อหาคุกกี้ตรงๆ
+      # อัปโหลดไฟล์ที่ Environment > Secret Files ก่อน (Render จะ mount ให้ที่
+      # /etc/secrets/<ชื่อไฟล์>) แล้วค่อยตั้งตัวแปรนี้ให้ชี้ไปที่ path นั้น
+      - key: SOCIALSCOOP_COOKIES_FILE
+        sync: false
