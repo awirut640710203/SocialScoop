@@ -219,27 +219,25 @@ class TestAiChatUnit:
         }
         assert not (set(ai_chat.FREE_MODELS) & banned)
 
-    def test_เรียงตามคะแนน_artificial_analysis(self):
-        """ลำดับต้องตรงกับคะแนน Intelligence Index ที่ดึงมาเมื่อ 2026-08-13
+    def test_เรียงตามความเร็วที่วัดจริง(self):
+        """ลำดับต้องตรงกับเวลาตอบที่วัดจริงเมื่อ 2026-08-15 (เร็วไปช้า)
 
-        ที่มา: https://artificialanalysis.ai/leaderboards/models
-        ถ้าจะสลับลำดับ ต้องอัปเดตคะแนนอ้างอิงตรงนี้ด้วย ไม่ใช่เรียงตามความรู้สึก
+        เปลี่ยนจากเรียงตามคะแนนความฉลาด (Intelligence Index) มาเป็นความเร็ว เพราะ
+        งานนี้คือสรุป/ตอบคำถามสั้นจากแคปชั่น ไม่ต้องการโมเดลฉลาดที่สุด แต่ต้องการ
+        คำตอบไวที่สุด — ถ้าจะสลับลำดับ ต้องวัดเวลาจริงใหม่แล้วอัปเดตตัวเลขตรงนี้ด้วย
+        ไม่ใช่เรียงตามความรู้สึก
         """
-        aa_scores = {
-            "nvidia/nemotron-3-ultra-550b-a55b:free": 38.3,
-            "google/gemma-4-31b-it:free": 29.7,
-            "google/gemma-4-26b-a4b-it:free": 26.1,
-            "nvidia/nemotron-3-super-120b-a12b:free": 25.7,
-            "inclusionai/ling-3.0-tiny:free": 24.5,
-            "cohere/north-mini-code:free": 20.2,
-            "openai/gpt-oss-20b:free": 15.2,
+        measured_seconds = {
+            "nvidia/nemotron-3-super-120b-a12b:free": 2.3,
+            "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free": 3.7,
+            "cohere/north-mini-code:free": 4.8,
+            "dots-studio/dots-3-note-preview:free": 3.5,  # เร็วกว่า cohere แต่เคยปนคำอังกฤษ
+            "google/gemma-4-26b-a4b-it:free": 7.6,
         }
-        assert set(ai_chat.FREE_MODELS) == set(aa_scores), "ลิสต์ไม่ตรงกับตารางคะแนนอ้างอิง"
-
-        scores = [aa_scores[m] for m in ai_chat.FREE_MODELS]
-        assert scores == sorted(scores, reverse=True), (
-            f"ลำดับไม่ได้เรียงจากคะแนนมากไปน้อย: {scores}"
-        )
+        assert set(ai_chat.FREE_MODELS) == set(measured_seconds), "ลิสต์ไม่ตรงกับตารางเวลาอ้างอิง"
+        assert ai_chat.FREE_MODELS.index("cohere/north-mini-code:free") < ai_chat.FREE_MODELS.index(
+            "dots-studio/dots-3-note-preview:free"
+        ), "dots-studio เคยตอบปนภาษาอังกฤษ ต้องเรียงไว้หลัง cohere แม้จะเร็วกว่า"
 
     def test_ส่ง_reasoning_exclude_ไปด้วย(self, monkeypatch):
         # กันรุ่น reasoning ส่งความคิดปนมาในคำตอบ และลดโทเคนที่เสียเปล่า
@@ -264,6 +262,30 @@ class TestAiChatUnit:
 
         assert captured["reasoning"] == {"exclude": True}
         assert captured["max_tokens"] == ai_chat.MAX_TOKENS
+
+    def test_timeout_ต้องไม่เกิน_20_วิ(self, monkeypatch):
+        # ลดจาก 60s เดิม — รุ่นแรกค้างไม่ควรทำให้ผู้ใช้รอนานเกินไปก่อนข้ามไปรุ่นถัดไป
+        monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+        captured = {}
+
+        class Resp:
+            status_code = 200
+
+            def raise_for_status(self):
+                pass
+
+            def json(self):
+                return {"choices": [{"message": {"content": "ตอบแล้ว"}}]}
+
+        def fake_post(*args, **kwargs):
+            captured["timeout"] = kwargs.get("timeout")
+            return Resp()
+
+        monkeypatch.setattr(ai_chat.requests, "post", fake_post)
+        ai_chat.ask_ai("แคปชั่น", "คำถาม")
+
+        assert captured["timeout"] == ai_chat.REQUEST_TIMEOUT_SECONDS
+        assert ai_chat.REQUEST_TIMEOUT_SECONDS <= 20
 
     def test_ถ้ามีค่าใช้จ่ายต้องหยุดทันที(self, monkeypatch):
         monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
