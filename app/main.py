@@ -6,23 +6,24 @@
 """
 
 from pathlib import Path
+from urllib.parse import parse_qs
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 from starlette.requests import Request
 
-from . import ai_chat, downloader
-from .auth import BasicAuthMiddleware
+from . import ai_chat, auth, downloader
+from .auth import AuthMiddleware
 from .extract import PLATFORM_LABELS, detect_platform
 
 BASE_DIR = Path(__file__).resolve().parent
 DOWNLOAD_DIR = (BASE_DIR.parent / "downloads").resolve()
 
 app = FastAPI(title="SocialScoop", version="0.1.0")
-app.add_middleware(BasicAuthMiddleware)
+app.add_middleware(AuthMiddleware)
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
@@ -41,8 +42,67 @@ def index(request: Request):
     return templates.TemplateResponse(
         request=request,
         name="index.html",
-        context={"ai_enabled": ai_chat.has_api_key()},
+        context={
+            "ai_enabled": ai_chat.has_api_key(),
+            # ไม่ได้ตั้งรหัสผ่าน = ไม่มีระบบล็อกอิน จึงไม่ต้องโชว์ปุ่มออกจากระบบให้งง
+            "auth_enabled": auth.configured_password() is not None,
+        },
     )
+
+
+@app.get("/login", response_class=HTMLResponse)
+def login_page(request: Request):
+    """หน้าล็อกอิน — ถ้าล็อกอินอยู่แล้วเด้งกลับหน้าหลักเลย ไม่ต้องกรอกซ้ำ"""
+    if auth.configured_password() is None or auth.has_valid_session(request):
+        return RedirectResponse("/", status_code=303)
+    return templates.TemplateResponse(request=request, name="login.html", context={"error": None})
+
+
+@app.post("/login")
+async def login_submit(request: Request):
+    """ตรวจชื่อผู้ใช้+รหัสผ่าน แล้วออกคุกกี้เซสชันอายุ 1 ปีให้เครื่องนี้จำไว้
+
+    แกะฟอร์มเองด้วย parse_qs แทนการใช้ request.form() ของ Starlette เพราะตัวนั้น
+    บังคับให้ติดตั้ง python-multipart เพิ่ม ทั้งที่ฟอร์มนี้เป็น urlencoded ธรรมดา
+    แค่ 2 ช่อง — เลี่ยง dependency เพิ่มเพื่อให้ image ที่ deploy เล็กและ build เร็ว
+    """
+    client_ip = request.client.host if request.client else "unknown"
+
+    retry_after = auth.throttle_retry_after(client_ip)
+    if retry_after:
+        return templates.TemplateResponse(
+            request=request,
+            name="login.html",
+            context={"error": f"ลองผิดหลายครั้งเกินไป — รออีก {retry_after} วินาทีแล้วลองใหม่"},
+            status_code=429,
+        )
+
+    raw_body = (await request.body()).decode("utf-8", errors="replace")
+    fields = parse_qs(raw_body, keep_blank_values=True)
+    username = (fields.get("username") or [""])[0]
+    password = (fields.get("password") or [""])[0]
+
+    if not auth.credentials_valid(username, password):
+        auth.record_failed_attempt(client_ip)
+        return templates.TemplateResponse(
+            request=request,
+            name="login.html",
+            context={"error": "ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง"},
+            status_code=401,
+        )
+
+    auth.clear_failed_attempts(client_ip)
+    response = RedirectResponse("/", status_code=303)
+    auth.set_session_cookie(response, request)
+    return response
+
+
+@app.post("/logout")
+def logout():
+    """ออกจากระบบเฉพาะเครื่องนี้ (ลบคุกกี้) — เครื่องอื่นที่ล็อกอินไว้ยังใช้ได้ต่อ"""
+    response = RedirectResponse("/login", status_code=303)
+    auth.clear_session_cookie(response)
+    return response
 
 
 @app.get("/api/detect")

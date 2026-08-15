@@ -7,6 +7,7 @@ import json
 
 import pytest
 
+from app import threads_extractor as te
 from app.threads_extractor import (
     ThreadsExtractError,
     best_thumbnail_url,
@@ -177,3 +178,124 @@ class TestBuildDetails:
         details = build_details(node, "https://www.threads.com/@guilfoilpr/post/DJDNCztRGb1")
         assert details["caption"] is None, "คอมเมนต์ไม่ควรถูกเอาไปแสดงเป็นแคปชั่นของโพสต์"
         assert details["shopee_links"] == ["https://shp.ee/from-comment"]
+
+
+class _FakeBrowser:
+    def __init__(self):
+        self.connected = True
+        self.close_calls = 0
+
+    def is_connected(self):
+        return self.connected
+
+    def close(self):
+        self.close_calls += 1
+        self.connected = False
+
+
+class _FakePlaywrightContext:
+    """แทน sync_playwright() — นับจำนวน browser ที่ถูกเปิดจริง"""
+
+    def __init__(self, launched: list):
+        self.launched = launched
+
+    def __enter__(self):
+        outer = self
+
+        class _Chromium:
+            def launch(self, **kwargs):
+                browser = _FakeBrowser()
+                outer.launched.append(browser)
+                return browser
+
+        class _Playwright:
+            chromium = _Chromium()
+
+        return _Playwright()
+
+    def __exit__(self, *exc):
+        return False
+
+
+class TestBrowserWorker:
+    """เธรดเจ้าของ Chromium ที่เปิดค้างไว้ใช้ซ้ำ — ไม่แตะเน็ต/เบราว์เซอร์จริง ใช้ของปลอมล้วน"""
+
+    @pytest.fixture
+    def worker_env(self, monkeypatch):
+        launched: list = []
+        monkeypatch.setattr(te, "sync_playwright", lambda: _FakePlaywrightContext(launched))
+        monkeypatch.setattr(te, "_load_page", lambda browser, url: (f"<html>{url}</html>", url))
+        worker = te._BrowserWorker()
+        try:
+            yield worker, launched
+        finally:
+            worker.shutdown()
+
+    def test_ยิงหลายครั้งเปิด_chromium_แค่ครั้งเดียว(self, worker_env):
+        worker, launched = worker_env
+
+        for i in range(3):
+            html, final = worker.fetch(f"https://www.threads.com/@a/post/x{i}")
+            assert final.endswith(f"x{i}")
+
+        assert len(launched) == 1, (
+            f"ต้องใช้ browser ตัวเดิมซ้ำ ไม่เปิดใหม่ทุกครั้ง (เปิดไป {len(launched)} ตัว)"
+        )
+
+    def test_browser_ตายแล้วเปิดใหม่ให้อัตโนมัติ(self, worker_env):
+        worker, launched = worker_env
+
+        worker.fetch("https://www.threads.com/@a/post/x1")
+        assert len(launched) == 1
+
+        # จำลองว่า Chromium ตายไปเอง (เช่นโดน OOM killer เก็บบน Render)
+        launched[0].connected = False
+
+        html, _ = worker.fetch("https://www.threads.com/@a/post/x2")
+        assert html, "ต้องยังดึงข้อมูลได้แม้ browser ตัวเดิมตายไปแล้ว"
+        assert len(launched) == 2, "ต้องเปิด browser ตัวใหม่มาแทนตัวที่ตาย"
+
+    def test_โหลดหน้าพังแล้ว_error_ส่งกลับถึงผู้เรียก(self, monkeypatch):
+        launched: list = []
+        monkeypatch.setattr(te, "sync_playwright", lambda: _FakePlaywrightContext(launched))
+
+        def boom(browser, url):
+            raise RuntimeError("หน้าเว็บพัง")
+
+        monkeypatch.setattr(te, "_load_page", boom)
+        worker = te._BrowserWorker()
+        try:
+            with pytest.raises(RuntimeError, match="หน้าเว็บพัง"):
+                worker.fetch("https://www.threads.com/@a/post/x")
+            # ทิ้ง browser ตัวที่พังไปแล้ว คำขอถัดไปต้องได้ตัวใหม่ ไม่ใช่ใช้ตัวเดิมค้างไว้
+            assert launched[0].close_calls >= 1
+        finally:
+            worker.shutdown()
+
+    def test_ยิงพร้อมกันหลายเธรดไม่พังและได้ผลตรงกับที่ขอ(self, worker_env):
+        # ความเสี่ยงหลักของดีไซน์นี้ — FastAPI รัน endpoint sync ในเธรดคนละตัวทุกคำขอ
+        from concurrent.futures import ThreadPoolExecutor
+
+        worker, launched = worker_env
+        urls = [f"https://www.threads.com/@a/post/x{i}" for i in range(8)]
+
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            results = list(pool.map(worker.fetch, urls))
+
+        for url, (html, final) in zip(urls, results):
+            assert final == url, "ผลลัพธ์ต้องตรงกับคำขอของเธรดนั้น ไม่สลับกัน"
+            assert url in html
+        assert len(launched) == 1
+
+
+class TestCloseQuietly:
+    def test_ปิดพังก็ไม่โยน_error_ออกมา(self):
+        class Stubborn:
+            def close(self):
+                raise RuntimeError("ปิดไม่ได้")
+
+        # ถ้าปล่อย error หลุดออกมา เธรด worker จะตายทั้งเธรด กู้ไม่ได้
+        assert te._close_quietly(Stubborn()) is None
+
+    def test_ส่ง_none_มาก็ไม่พัง(self):
+        assert te._close_quietly(None) is None

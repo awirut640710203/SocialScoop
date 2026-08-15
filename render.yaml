@@ -15,6 +15,8 @@ services:
     envVars:
       - key: OPENROUTER_API_KEY
         sync: false
+      - key: SOCIALSCOOP_USERNAME
+        sync: false
       - key: SOCIALSCOOP_PASSWORD
         sync: false
       # เสริมเมื่อ TikTok/Instagram ต้องใช้คุกกี้ (ดู downloader.py: cookie_file()) —

@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="color-scheme" content="light dark" />
+  <title>เข้าสู่ระบบ — SocialScoop</title>
+  <!-- CSS ฝังในหน้าเลย ไม่ดึงจาก /static เพราะไฟล์สแตติกยังถูกป้องกันด้วยรหัสผ่านอยู่
+       ถ้าไปดึงจากที่นั่นหน้าล็อกอินจะโหลดสไตล์ไม่ขึ้น (โดน redirect กลับมาที่ตัวเอง) -->
+  <style>
+    :root {
+      --ground: #f4f5f1;
+      --surface: #ffffff;
+      --ink: #16211d;
+      --muted: #5c665f;
+      --line: #d9dbd2;
+      --coral: #ff6b4a;
+      --coral-on: #fff9f6;
+      --danger: #b3261e;
+      --danger-soft: #fce8e6;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --ground: #121613;
+        --surface: #191f1b;
+        --ink: #eef1ec;
+        --muted: #a3aca4;
+        --line: #2b332d;
+        --coral: #ff8465;
+        --coral-on: #24140e;
+        --danger: #f2b8b5;
+        --danger-soft: #2d1a18;
+      }
+    }
+    * { box-sizing: border-box; }
+    html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      min-height: 100dvh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      background: var(--ground);
+      color: var(--ink);
+      font-family: "IBM Plex Sans Thai", "Leelawadee UI", "Noto Sans Thai", "Segoe UI", system-ui, sans-serif;
+      line-height: 1.75;
+    }
+    .card {
+      width: 100%;
+      max-width: 380px;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 32px 26px;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06), 0 8px 24px -12px rgba(0, 0, 0, 0.18);
+    }
+    .wordmark {
+      font-size: 24px;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+      text-align: center;
+      margin: 0 0 6px;
+    }
+    .wordmark em { font-style: normal; color: var(--coral); }
+    .sub {
+      text-align: center;
+      color: var(--muted);
+      font-size: 14px;
+      margin: 0 0 24px;
+    }
+    label {
+      display: block;
+      font-size: 13px;
+      font-weight: 600;
+      margin-bottom: 6px;
+    }
+    input {
+      width: 100%;
+      border: 1.5px solid var(--line);
+      background: var(--ground);
+      color: var(--ink);
+      border-radius: 10px;
+      padding: 12px 14px;
+      /* 16px กันหน้าจอ iOS เด้งซูมอัตโนมัติตอนโฟกัสช่องกรอก */
+      font-size: 16px;
+      font-family: inherit;
+      margin-bottom: 16px;
+      outline: none;
+    }
+    input:focus { border-color: var(--coral); }
+    button {
+      width: 100%;
+      border: none;
+      background: var(--coral);
+      color: var(--coral-on);
+      border-radius: 10px;
+      padding: 0 20px;
+      min-height: 48px;
+      font-family: inherit;
+      font-size: 15px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    button:hover { opacity: 0.92; }
+    .error {
+      background: var(--danger-soft);
+      border: 1px solid var(--danger);
+      color: var(--danger);
+      border-radius: 8px;
+      padding: 10px 14px;
+      font-size: 13.5px;
+      margin-bottom: 18px;
+    }
+    .note {
+      color: var(--muted);
+      font-size: 12px;
+      text-align: center;
+      margin: 18px 0 0;
+      line-height: 1.6;
+    }
+  </style>
+</head>
+<body>
+  <main class="card">
+    <h1 class="wordmark">Social<em>Scoop</em></h1>
+    <p class="sub">เข้าสู่ระบบเพื่อใช้งาน</p>
+
+    {% if error %}
+    <p class="error" role="alert">{{ error }}</p>
+    {% endif %}
+
+    <form method="post" action="/login">
+      <label for="username">ชื่อผู้ใช้</label>
+      <input
+        id="username"
+        name="username"
+        type="text"
+        autocomplete="username"
+        autocapitalize="none"
+        autocorrect="off"
+        spellcheck="false"
+        required
+        autofocus
+      />
+
+      <label for="password">รหัสผ่าน</label>
+      <input
+        id="password"
+        name="password"
+        type="password"
+        autocomplete="current-password"
+        required
+      />
+
+      <button type="submit">เข้าสู่ระบบ</button>
+    </form>
+
+    <p class="note">เข้าสู่ระบบครั้งเดียว เครื่องนี้จะจำไว้ 1 ปี<br />ไม่ต้องกรอกซ้ำทุกครั้งที่เปิดใช้งาน</p>
+  </main>
+</body>
+</html>

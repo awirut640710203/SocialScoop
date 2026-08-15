@@ -16,7 +16,10 @@ github.com/m1guelpf/threads-re) ก็ทดสอบแล้วใช้ไม
 """
 
 import json
+import queue
 import re
+import threading
+from concurrent.futures import Future
 from datetime import datetime, timezone
 from typing import Any
 
@@ -205,6 +208,133 @@ def build_details(node: dict, url: str) -> dict:
     }
 
 
+def _load_page(browser, url: str) -> tuple[str, str]:
+    """เปิดหน้าใน browser ที่ให้มา แล้วคืน (html, final_url)"""
+    page = browser.new_page(user_agent=USER_AGENT)
+    try:
+        # เราอ่านแค่ HTML/JSON ที่ฝังมากับหน้า ไม่เคยต้องเห็นภาพจริงเลย —
+        # บล็อกรูป/ฟอนต์/CSS/วิดีโอทิ้งไปตั้งแต่ระดับ network request ประหยัดทั้ง
+        # เวลาโหลดและ CPU ตอน decode/render ซึ่งมีผลมากเป็นพิเศษบน container ที่
+        # จำกัด CPU อย่าง Render free tier
+        page.route(
+            "**/*",
+            lambda route: route.abort()
+            if route.request.resource_type in ("image", "stylesheet", "font", "media")
+            else route.continue_(),
+        )
+        # ข้อมูลโพสต์ (video_versions/caption ฯลฯ) มาจาก server-side render ฝังอยู่ใน
+        # HTML ตั้งแต่แรกอยู่แล้ว ไม่ได้โหลดทีหลังด้วย JS จึงไม่ต้องรอ networkidle
+        # (ซึ่งรอ tracking/analytics beacon เบื้องหลังที่ไม่เกี่ยวด้วย เสียเวลาเปล่า
+        # ~2 วินาทีต่อครั้ง — วัดจริงแล้วก่อนแก้) แค่ domcontentloaded ก็พอ
+        page.goto(url, wait_until="domcontentloaded", timeout=30000)
+        page.wait_for_timeout(300)
+        return page.content(), page.url
+    finally:
+        page.close()
+
+
+class _BrowserWorker:
+    """เธรดเดียวที่เป็นเจ้าของ Chromium และเปิดค้างไว้ใช้ซ้ำข้ามคำขอ
+
+    ทำไมต้องมีเธรดเฉพาะ: Playwright แบบ sync ผูกอ็อบเจกต์ไว้กับเธรดที่สร้างมันเท่านั้น
+    แต่ FastAPI รัน endpoint แบบ sync ใน threadpool ซึ่งสลับเธรดไปเรื่อยทุกคำขอ
+    จึงเอา browser ไปแชร์ตรงๆ ข้ามเธรดไม่ได้ ต้องให้เธรดนี้เธรดเดียวเป็นเจ้าของ
+    แล้วเธรดอื่นส่งงานเข้าคิวมาแทน
+
+    ทำไมต้องเปิดค้าง: วัดจริงแล้วการเปิด-ปิด Chromium ใหม่ทุกครั้งกินเวลาเปล่า ~1.8s
+    บนเครื่อง dev และ ~6s บน Render (CPU ถูกจำกัด) ต่อหนึ่งคำขอ ทั้งที่ไม่เกี่ยวกับ
+    การโหลดหน้าเว็บจริงเลย
+
+    ผลข้างเคียงที่ยอมรับ: คำขอ Threads จะถูกทำทีละอันตามคิว ไม่ขนานกัน — ซึ่งไม่เสียหาย
+    เพราะ Render free tier มี CPU เดียวอยู่แล้ว รันขนานก็ไม่ได้เร็วขึ้นจริง
+    """
+
+    # ปิด browser ทิ้งถ้าไม่มีงานเข้ามานานเท่านี้ เพื่อคืน RAM ให้ระบบ — สำคัญมากบน
+    # Render free tier ที่มี RAM แค่ 512MB และ Chromium ที่เปิดค้างกินไปร่วม 100-150MB
+    IDLE_CLOSE_SECONDS = 120
+
+    def __init__(self) -> None:
+        self._queue: queue.Queue = queue.Queue()
+        self._thread: threading.Thread | None = None
+        self._lock = threading.Lock()
+
+    def _ensure_thread(self) -> None:
+        with self._lock:
+            if self._thread is None or not self._thread.is_alive():
+                self._thread = threading.Thread(
+                    target=self._run, name="threads-browser", daemon=True
+                )
+                self._thread.start()
+
+    def _run(self) -> None:
+        with sync_playwright() as p:
+            browser = None
+            try:
+                while True:
+                    try:
+                        job = self._queue.get(timeout=self.IDLE_CLOSE_SECONDS)
+                    except queue.Empty:
+                        browser = _close_quietly(browser)
+                        continue
+
+                    if job is None:  # สัญญาณให้ปิดเธรด (ใช้ในเทสต์)
+                        break
+
+                    url, future = job
+                    if not future.set_running_or_notify_cancel():
+                        continue
+                    try:
+                        # --no-sandbox จำเป็นตอนรันเป็น non-root ใน container (Render ฯลฯ)
+                        # เพราะ sandbox ปกติของ Chromium ต้องการสิทธิ์ user-namespace ที่
+                        # container ส่วนใหญ่ปิดไว้ — ไม่มี flag นี้ Chromium จะ crash ทันที
+                        if browser is None or not browser.is_connected():
+                            browser = p.chromium.launch(
+                                headless=True,
+                                args=["--no-sandbox", "--disable-setuid-sandbox"],
+                            )
+                        future.set_result(_load_page(browser, url))
+                    except BaseException as exc:  # noqa: BLE001
+                        # browser อาจพังไปแล้ว (ถูก OOM killer เก็บ ฯลฯ) ทิ้งไปเลยให้
+                        # คำขอถัดไปเปิดใหม่ ดีกว่าใช้ตัวที่พังแล้วค้างไปเรื่อยๆ
+                        browser = _close_quietly(browser)
+                        future.set_exception(exc)
+            finally:
+                _close_quietly(browser)
+
+    def fetch(self, url: str) -> tuple[str, str]:
+        self._ensure_thread()
+        future: Future = Future()
+        self._queue.put((url, future))
+        return future.result()
+
+    def shutdown(self) -> None:
+        """ปิดเธรดและ browser — ใช้ในเทสต์ให้แน่ใจว่าไม่มีของค้างข้ามเทสต์"""
+        with self._lock:
+            thread = self._thread
+            self._thread = None
+        if thread and thread.is_alive():
+            self._queue.put(None)
+            thread.join(timeout=10)
+
+
+def _close_quietly(browser):
+    """ปิด browser โดยไม่ให้ error ตอนปิดทำให้ทั้งเธรดล้ม — คืน None เสมอ"""
+    if browser is not None:
+        try:
+            browser.close()
+        except Exception:  # noqa: BLE001
+            pass
+    return None
+
+
+_worker = _BrowserWorker()
+
+
+def shutdown_browser() -> None:
+    """ปิด Chromium ที่เปิดค้างไว้ (ใช้ในเทสต์/ตอนปิดแอป)"""
+    _worker.shutdown()
+
+
 def fetch_page_html(url: str) -> tuple[str, str]:
     """คืน (html, final_url) — final_url คือ URL หลัง redirect ถ้ามี
 
@@ -213,35 +343,7 @@ def fetch_page_html(url: str) -> tuple[str, str]:
     หลัง redirect เท่านั้น อ่านจาก url ที่ผู้ใช้วางมาตรงๆ ไม่ได้เสมอไป
     """
     try:
-        with sync_playwright() as p:
-            # --no-sandbox จำเป็นตอนรันเป็น non-root ใน container (Render ฯลฯ) เพราะ
-            # sandbox ปกติของ Chromium ต้องการสิทธิ์ user-namespace ที่ container ส่วนใหญ่
-            # ปิดไว้ — ไม่มี flag นี้ Chromium จะ crash ตั้งแต่ launch ทันทีตอนรันบน Render
-            browser = p.chromium.launch(
-                headless=True,
-                args=["--no-sandbox", "--disable-setuid-sandbox"],
-            )
-            try:
-                page = browser.new_page(user_agent=USER_AGENT)
-                # เราอ่านแค่ HTML/JSON ที่ฝังมากับหน้า ไม่เคยต้องเห็นภาพจริงเลย —
-                # บล็อกรูป/ฟอนต์/CSS/วิดีโอทิ้งไปตั้งแต่ระดับ network request ประหยัดทั้ง
-                # เวลาโหลดและ CPU ตอน decode/render ซึ่งมีผลมากเป็นพิเศษบน container ที่
-                # จำกัด CPU อย่าง Render free tier (วัดจริง: ลด fetch จาก ~14s เหลือดีขึ้นมาก)
-                page.route(
-                    "**/*",
-                    lambda route: route.abort()
-                    if route.request.resource_type in ("image", "stylesheet", "font", "media")
-                    else route.continue_(),
-                )
-                # ข้อมูลโพสต์ (video_versions/caption ฯลฯ) มาจาก server-side render ฝังอยู่ใน
-                # HTML ตั้งแต่แรกอยู่แล้ว ไม่ได้โหลดทีหลังด้วย JS จึงไม่ต้องรอ networkidle
-                # (ซึ่งรอ tracking/analytics beacon เบื้องหลังที่ไม่เกี่ยวด้วย เสียเวลาเปล่า
-                # ~2 วินาทีต่อครั้ง — วัดจริงแล้วก่อนแก้) แค่ domcontentloaded ก็พอ
-                page.goto(url, wait_until="domcontentloaded", timeout=30000)
-                page.wait_for_timeout(300)
-                return page.content(), page.url
-            finally:
-                browser.close()
+        return _worker.fetch(url)
     except PlaywrightTimeoutError as exc:
         raise ThreadsExtractError("โหลดหน้า Threads ไม่ทัน (หมดเวลา) — ลองใหม่อีกครั้ง") from exc
     except PlaywrightError as exc:
