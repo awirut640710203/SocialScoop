@@ -1,6 +1,6 @@
 # SocialScoop
 
-ดาวน์โหลดวิดีโอจาก **TikTok / Instagram / Threads** พร้อมดึงแคปชั่น แฮชแท็ก สถิติ และลิงก์ Shopee ที่ซ่อนอยู่ในโพสต์ แล้วถาม AI เกี่ยวกับเนื้อหาได้ทันที
+ดาวน์โหลดวิดีโอจาก **TikTok / Instagram / Threads / X** พร้อมดึงแคปชั่น แฮชแท็ก สถิติ และลิงก์ Shopee ที่ซ่อนอยู่ในโพสต์ แล้วถาม AI เกี่ยวกับเนื้อหาได้ทันที
 
 ---
 
@@ -285,3 +285,4 @@ SocialScoop/
 - รองรับเฉพาะโพสต์สาธารณะ
 - รายชื่อโมเดลฟรีของ OpenRouter เปลี่ยนบ่อย ถ้าใช้ไม่ได้ให้เช็กที่ [openrouter.ai/models](https://openrouter.ai/models) แล้วแก้ `FREE_MODELS` ใน `app/ai_chat.py`
 - yt-dlp ยังไม่มี extractor เฉพาะของ Threads (ใช้ generic) จึงอาจได้ข้อมูลไม่ครบเท่า TikTok/Instagram
+- X: ดึงแคปชั่น/สถิติ/วิดีโอผ่าน yt-dlp ได้ ส่วนโพสต์ที่มีแต่รูปภาพ yt-dlp ไม่คืน URL รูปมาให้ จึงไปขอจาก syndication API ของ X แทน (ดู `app/x_extractor.py`) และ X ไม่รองรับการดึงคอมเมนต์ ลิงก์ Shopee ที่อยู่ในรีพลายจึงหาไม่เจอ ต่างจาก Instagram/Threads

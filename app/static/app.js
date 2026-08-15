@@ -171,6 +171,8 @@
     if (host === "tiktok.com" || /\.tiktok\.com$/.test(host)) return "tiktok";
     if (host === "instagram.com" || /\.instagram\.com$/.test(host)) return "instagram";
     if (/^(.*\.)?threads\.(net|com)$/.test(host)) return "threads";
+    // twitter.com คือชื่อเดิมของ x.com — คนยังคัดลอกลิงก์แบบเดิมมาใช้อยู่มาก
+    if (/^(.*\.)?(x|twitter)\.com$/.test(host)) return "x";
     return null;
   }
 

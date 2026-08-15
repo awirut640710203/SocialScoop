@@ -1,4 +1,4 @@
-"""ดึงข้อมูลและดาวน์โหลดวิดีโอจาก TikTok / Instagram / Threads ด้วย yt-dlp
+"""ดึงข้อมูลและดาวน์โหลดวิดีโอจาก TikTok / Instagram / Threads / X ด้วย yt-dlp
 
 แยกเป็นสองจังหวะ:
   1. fetch_metadata()  — ไม่โหลดไฟล์ ใช้เวลาไม่กี่วินาที เอาไปโชว์การ์ดรายละเอียดก่อน
@@ -13,7 +13,7 @@ from pathlib import Path
 import requests
 import yt_dlp
 
-from . import threads_extractor
+from . import threads_extractor, x_extractor
 from .extract import build_details, detect_platform
 
 DOWNLOAD_DIR = Path("downloads")
@@ -161,6 +161,26 @@ def _friendly_error(exc: Exception) -> str:
     return f"ดึงข้อมูลไม่สำเร็จ: {text.strip()[:200]}"
 
 
+def _enrich_x_photo(url: str, info: dict) -> None:
+    """เติม thumbnail ให้โพสต์ X ที่มีแต่รูปภาพ (แก้ info ที่ส่งเข้ามาโดยตรง)
+
+    yt-dlp คืนทั้ง formats และ thumbnail เป็นค่าว่างสำหรับโพสต์รูปล้วนบน X ทำให้
+    media_type เป็น None แล้วหน้าเว็บไม่ขึ้นปุ่มดาวน์โหลดเลย — พอเติม thumbnail เข้าไป
+    media_type จะกลายเป็น "image" เอง และ _download_ytdlp_image() ก็โหลดไฟล์ได้ทันที
+    โดยไม่ต้องแก้อะไรเพิ่ม (ดู extract.media_type)
+
+    เรียกก่อนเก็บลงแคชเสมอ เพื่อให้ทั้งขั้นตอน fetch และ download ใช้ค่าเดียวกัน
+    ไม่ต้องยิงถาม syndication API ซ้ำ
+    """
+    if detect_platform(url) != "x":
+        return
+    if info.get("formats") or info.get("thumbnail"):
+        return
+    photo = x_extractor.best_photo_url(url)
+    if photo:
+        info["thumbnail"] = photo
+
+
 def fetch_metadata(url: str) -> dict:
     """ดึงรายละเอียดโพสต์โดยไม่ดาวน์โหลดไฟล์วิดีโอ
 
@@ -203,6 +223,7 @@ def fetch_metadata(url: str) -> dict:
             raise DownloadError("ลิงก์นี้ไม่มีวิดีโออยู่ข้างใน")
         info = entries[0]
 
+    _enrich_x_photo(url, info)
     _cache_set(url, {"kind": "ytdlp", "info": info})
     return build_details(info)
 
@@ -318,6 +339,7 @@ def download_video(url: str, output_dir: Path | str = DOWNLOAD_DIR) -> dict:
             if not entries:
                 raise DownloadError("ลิงก์นี้ไม่มีวิดีโออยู่ข้างใน")
             info = entries[0]
+        _enrich_x_photo(url, info)
         _cache_set(url, {"kind": "ytdlp", "info": info})
 
     if not info.get("formats"):

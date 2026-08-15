@@ -40,7 +40,7 @@ def show_details(details: dict) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="ดาวน์โหลดวิดีโอ + ดึงรายละเอียดโพสต์จาก TikTok/Instagram/Threads",
+        description="ดาวน์โหลดวิดีโอ + ดึงรายละเอียดโพสต์จาก TikTok/Instagram/Threads/X",
     )
     parser.add_argument("url", nargs="?", help="ลิงก์โพสต์")
     parser.add_argument("-f", "--file", help="ไฟล์รวมลิงก์ (บรรทัดละ 1 ลิงก์)")

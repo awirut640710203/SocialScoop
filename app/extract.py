@@ -27,6 +27,7 @@ PLATFORM_LABELS = {
     "tiktok": "TikTok",
     "instagram": "Instagram",
     "threads": "Threads",
+    "x": "X",
 }
 
 
@@ -58,7 +59,22 @@ def detect_platform(url: str) -> str | None:
         return "instagram"
     if host in ("threads.net", "threads.com") or host.endswith((".threads.net", ".threads.com")):
         return "threads"
+    # ชื่อเดิม twitter.com ยังใช้ได้อยู่และคนยังคัดลอกลิงก์แบบนั้นมาเยอะ ต้องรับทั้งสองชื่อ
+    if host in ("x.com", "twitter.com") or host.endswith((".x.com", ".twitter.com")):
+        return "x"
     return None
+
+
+# yt-dlp ยังใช้ชื่อ extractor เดิมว่า "Twitter" อยู่ แต่แพลตฟอร์มเปลี่ยนชื่อเป็น X แล้ว
+# ถ้าโชว์ตามที่ yt-dlp บอก การ์ดผลลัพธ์จะเขียน "Twitter" ขณะที่ chip ด้านบนเขียน "X"
+_EXTRACTOR_DISPLAY_NAMES = {"twitter": "X"}
+
+
+def display_platform(extractor_key: str | None) -> str | None:
+    """แปลงชื่อ extractor ของ yt-dlp เป็นชื่อที่ผู้ใช้คุ้นเคย"""
+    if not extractor_key:
+        return None
+    return _EXTRACTOR_DISPLAY_NAMES.get(extractor_key.lower(), extractor_key)
 
 
 def parse_hashtags(caption: str) -> list[str]:
@@ -149,7 +165,7 @@ def build_details(info: dict) -> dict:
         "title": info.get("title") or None,
         "caption": caption or None,
         "uploader": info.get("uploader") or info.get("uploader_id") or None,
-        "platform": info.get("extractor_key") or info.get("extractor") or None,
+        "platform": display_platform(info.get("extractor_key") or info.get("extractor")),
         "webpage_url": info.get("webpage_url") or None,
         "thumbnail": info.get("thumbnail") or None,
         "duration": info.get("duration"),

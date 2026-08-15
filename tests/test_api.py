@@ -49,6 +49,14 @@ class TestDetect:
         res = client.get("/api/detect", params={"url": "https://www.tiktok.com/@a/video/1"})
         assert res.json() == {"platform": "tiktok", "label": "TikTok"}
 
+    def test_รู้จัก_x(self):
+        res = client.get("/api/detect", params={"url": "https://x.com/NASA/status/123"})
+        assert res.json() == {"platform": "x", "label": "X"}
+
+    def test_รู้จักลิงก์ชื่อเดิม_twitter(self):
+        res = client.get("/api/detect", params={"url": "https://twitter.com/NASA/status/123"})
+        assert res.json() == {"platform": "x", "label": "X"}
+
     def test_ไม่รู้จักแพลตฟอร์ม(self):
         res = client.get("/api/detect", params={"url": "https://example.com/x"})
         assert res.json() == {"platform": None, "label": None}

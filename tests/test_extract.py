@@ -5,6 +5,7 @@ import pytest
 from app.extract import (
     build_details,
     detect_platform,
+    display_platform,
     find_shopee_links,
     format_count,
     media_type,
@@ -23,6 +24,10 @@ class TestDetectPlatform:
             ("https://instagram.com/p/Cxyz/", "instagram"),
             ("https://www.threads.com/@zuck/post/abc", "threads"),
             ("https://www.threads.net/@zuck/post/abc", "threads"),
+            ("https://x.com/NASA/status/123", "x"),
+            ("https://twitter.com/NASA/status/123", "x"),  # ชื่อโดเมนเดิม
+            ("https://mobile.x.com/i/web/status/123", "x"),
+            ("x.com/NASA/status/123", "x"),  # ไม่มี scheme
             ("https://youtube.com/watch?v=abc", None),
             ("", None),
             ("   ", None),
@@ -36,6 +41,8 @@ class TestDetectPlatform:
         # tiktok.com.evil.com ต้องไม่ถูกมองว่าเป็น TikTok
         assert detect_platform("https://tiktok.com.evil.com/x") is None
         assert detect_platform("https://faketiktok.com/x") is None
+        assert detect_platform("https://x.com.evil.com/NASA/status/1") is None
+        assert detect_platform("https://notx.com/NASA/status/1") is None
 
 
 class TestParseHashtags:
@@ -217,3 +224,21 @@ class TestMediaType:
     def test_แคปชั่นว่างคืน_None(self):
         details = build_details({})
         assert details["caption"] is None
+
+
+class TestDisplayPlatform:
+    def test_twitter_แสดงเป็น_x(self):
+        # yt-dlp ยังใช้ชื่อเดิม แต่ผู้ใช้เห็น chip เขียน X ต้องตรงกัน
+        assert display_platform("Twitter") == "X"
+
+    def test_ชื่ออื่นไม่ถูกแตะ(self):
+        assert display_platform("Instagram") == "Instagram"
+        assert display_platform("TikTok") == "TikTok"
+
+    def test_ไม่มีค่าคืน_None(self):
+        assert display_platform(None) is None
+        assert display_platform("") is None
+
+    def test_build_details_ใช้ชื่อที่แสดงผล(self):
+        details = build_details({"extractor_key": "Twitter", "description": "hi"})
+        assert details["platform"] == "X"
