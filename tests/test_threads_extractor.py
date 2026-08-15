@@ -16,6 +16,7 @@ from app.threads_extractor import (
     find_reply_captions,
     media_type,
     parse_post_node,
+    resolve_shortcode,
     shortcode_from_url,
 )
 
@@ -53,6 +54,105 @@ class TestShortcodeFromUrl:
     def test_ไม่ใช่ลิงก์โพสต์ต้องพัง(self):
         with pytest.raises(ThreadsExtractError):
             shortcode_from_url("https://www.threads.com/@zuck")
+
+
+class TestResolveShortcode:
+    """ลิงก์ที่ผู้ใช้วางมาต้องมาก่อน URL หลัง redirect เสมอถ้ามี /post/"""
+
+    def test_เชื่อลิงก์เดิมแม้ปลายทางเป็นหน้าล็อกอิน(self):
+        # อาการที่เจอจริงบน production — Threads เด้งไป /login เป็นครั้งคราว
+        assert resolve_shortcode(
+            "https://www.threads.com/@zuck/post/DMF6tMAxkX8",
+            "https://www.threads.com/login?next=%2F%40zuck%2Fpost%2FDMF6tMAxkX8",
+        ) == "DMF6tMAxkX8"
+
+    def test_ลิงก์แชร์ยังใช้ปลายทางหลัง_redirect(self):
+        # threads.com/share/xxxxx/ ไม่มี /post/ ในตัวเอง ต้องรอ redirect ถึงจะรู้ shortcode
+        assert resolve_shortcode(
+            "https://www.threads.com/share/_gPhmX3c8/",
+            "https://www.threads.com/@user/post/DABC123",
+        ) == "DABC123"
+
+    def test_ทั้งสองฝั่งไม่มี_post_ต้องพัง(self):
+        with pytest.raises(ThreadsExtractError):
+            resolve_shortcode("https://www.threads.com/share/x/", "https://www.threads.com/login")
+
+
+class TestRedirectedAwayFromPost:
+    def test_เด้งออกจากโพสต์(self):
+        assert te._redirected_away_from_post(
+            "https://www.threads.com/@zuck/post/ABC", "https://www.threads.com/login?next=x"
+        ) is True
+
+    def test_อยู่ที่โพสต์ตามปกติ(self):
+        assert te._redirected_away_from_post(
+            "https://www.threads.com/@zuck/post/ABC", "https://www.threads.com/@zuck/post/ABC"
+        ) is False
+
+    def test_ลิงก์แชร์ที่_redirect_ไปโพสต์ไม่นับว่าเด้งออก(self):
+        assert te._redirected_away_from_post(
+            "https://www.threads.com/share/x/", "https://www.threads.com/@u/post/ABC"
+        ) is False
+
+    def test_ลิงก์แชร์ที่ไปไม่ถึงโพสต์ก็ไม่เข้าเงื่อนไขลองใหม่(self):
+        # ลิงก์เดิมไม่มี /post/ อยู่แล้ว แยกไม่ออกว่าเป็นอาการชั่วคราวหรือลิงก์ผิดจริง
+        assert te._redirected_away_from_post(
+            "https://www.threads.com/share/x/", "https://www.threads.com/login"
+        ) is False
+
+
+class TestFetchNodeRetry:
+    """โดนเด้งไปหน้าล็อกอินต้องลองใหม่ให้เองอีกครั้งเดียว"""
+
+    def _install(self, monkeypatch, results):
+        calls = []
+
+        def fake_fetch_page_html(url):
+            calls.append(url)
+            return results[min(len(calls) - 1, len(results) - 1)]
+
+        monkeypatch.setattr(te, "fetch_page_html", fake_fetch_page_html)
+        return calls
+
+    def test_ลองใหม่แล้วสำเร็จ(self, monkeypatch):
+        good = (_wrap_in_page(SAMPLE_NODE), "https://www.threads.com/@u/post/DJDNCztRGb1")
+        blocked = ("<html></html>", "https://www.threads.com/login?next=x")
+        calls = self._install(monkeypatch, [blocked, good])
+
+        node = te.fetch_node("https://www.threads.com/@u/post/DJDNCztRGb1")
+
+        assert node["code"] == "DJDNCztRGb1"
+        assert len(calls) == 2, "ต้องเปิดหน้าใหม่อีกครั้งหลังโดนเด้ง"
+
+    def test_ปกติแล้วไม่เปิดหน้าซ้ำ(self, monkeypatch):
+        good = (_wrap_in_page(SAMPLE_NODE), "https://www.threads.com/@u/post/DJDNCztRGb1")
+        calls = self._install(monkeypatch, [good])
+
+        te.fetch_node("https://www.threads.com/@u/post/DJDNCztRGb1")
+
+        assert len(calls) == 1, "ทางปกติต้องไม่มีต้นทุนเพิ่ม"
+
+    def test_ลองใหม่แล้วยังโดนเด้ง_ยังใช้_shortcode_จากลิงก์เดิมได้(self, monkeypatch):
+        # หน้าที่ได้กลับมามีข้อมูลโพสต์ครบ แค่ URL หลุดไป — ต้องไม่ทิ้งของที่ใช้ได้
+        blocked_but_has_data = (
+            _wrap_in_page(SAMPLE_NODE),
+            "https://www.threads.com/login?next=x",
+        )
+        calls = self._install(monkeypatch, [blocked_but_has_data])
+
+        node = te.fetch_node("https://www.threads.com/@u/post/DJDNCztRGb1")
+
+        assert node["code"] == "DJDNCztRGb1"
+        assert len(calls) == 2
+
+    def test_ไม่ลองใหม่เกินหนึ่งครั้ง(self, monkeypatch):
+        blocked = ("<html></html>", "https://www.threads.com/login?next=x")
+        calls = self._install(monkeypatch, [blocked])
+
+        with pytest.raises(ThreadsExtractError):
+            te.fetch_node("https://www.threads.com/@u/post/DJDNCztRGb1")
+
+        assert len(calls) == 2, "ต้องหยุดที่ 2 ครั้ง ไม่วนไม่รู้จบ"
 
 
 class TestParsePostNode:

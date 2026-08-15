@@ -49,6 +49,33 @@ def shortcode_from_url(url: str) -> str:
     return match.group(1)
 
 
+def resolve_shortcode(original_url: str, final_url: str) -> str:
+    """หา shortcode โดยเชื่อลิงก์ที่ผู้ใช้วางมาก่อน แล้วค่อยดู URL หลัง redirect
+
+    เดิมอ่านจาก URL หลัง redirect อย่างเดียว ซึ่งพังเวลา Threads เด้งไปหน้าล็อกอิน
+    (เจอจริงบน production: ลิงก์เดิมสำเร็จ 4 ครั้ง แต่พัง 1 ครั้งด้วยข้อความว่า
+    "ไม่มี /post/ ในลิงก์" ทั้งที่ลิงก์ที่ผู้ใช้วางมามี /post/ อยู่ชัดๆ) — พอ redirect
+    พาไป /login?next=... ตัว /post/ ก็หายไปจาก URL ด้วย
+
+    ลิงก์แชร์ (threads.com/share/xxxxx/) ยังทำงานเหมือนเดิม เพราะไม่มี /post/ ใน
+    ตัวเองอยู่แล้ว จึงตกไปใช้ URL หลัง redirect ตามเดิม ส่วนกรณีที่ลิงก์เดิมมี /post/
+    อยู่แล้ว redirect ไม่มีทางเปลี่ยน shortcode ได้ การเชื่อลิงก์เดิมจึงปลอดภัยเสมอ
+    """
+    match = _POST_ID_RE.search(original_url)
+    if match:
+        return match.group(1)
+    return shortcode_from_url(final_url)
+
+
+def _redirected_away_from_post(original_url: str, final_url: str) -> bool:
+    """True เมื่อลิงก์เดิมชี้ไปที่โพสต์ แต่ปลายทางหลุดออกไปที่อื่น (มักคือหน้าล็อกอิน)
+
+    ใช้เป็นสัญญาณว่า Threads ไม่ยอมเสิร์ฟหน้าโพสต์ให้รอบนี้ ซึ่งเป็นอาการชั่วคราว
+    ไม่ใช่โพสต์ถูกลบ — ต่างกันตรงที่โพสต์ถูกลบจะไม่ redirect ออกจาก /post/
+    """
+    return bool(_POST_ID_RE.search(original_url)) and not _POST_ID_RE.search(final_url)
+
+
 def _find_post_nodes(obj: Any, results: list) -> None:
     """เดินหา dict ที่หน้าตาเหมือน media node ของโพสต์ ในทุก JSON blob ที่ฝังอยู่ในหน้า"""
     if isinstance(obj, dict):
@@ -357,7 +384,14 @@ def fetch_node(url: str) -> dict:
     (ดู downloader.py: _cache_*) เพื่อไม่ต้องเปิด Chromium ใหม่ทั้งที่เพิ่งดึงเมื่อกี้นี้เอง
     """
     html, final_url = fetch_page_html(url)
-    shortcode = shortcode_from_url(final_url)
+
+    # โดนเด้งออกจากหน้าโพสต์ = Threads ไม่ยอมเสิร์ฟรอบนี้ ลองใหม่อีกครั้งเดียว
+    # (วัดจริงบน production: ยิงซ้ำหลังพลาดแล้วสำเร็จทุกครั้ง) เงื่อนไขนี้แคบมากโดยตั้งใจ
+    # โพสต์ที่ถูกลบจริงจะไม่เข้าเงื่อนไขนี้ จึงไม่ต้องเสียเวลาเปิดหน้าซ้ำให้เปล่าประโยชน์
+    if _redirected_away_from_post(url, final_url):
+        html, final_url = fetch_page_html(url)
+
+    shortcode = resolve_shortcode(url, final_url)
     node = parse_post_node(html, shortcode)
     # แนบคอมเมนต์ไว้ในตัว node เลย (คีย์ขึ้นต้น _ = ใช้ภายในเท่านั้น ไม่ใช่ข้อมูลของโพสต์
     # จริง) เพื่อให้ build_details() เอาไปสแกนหา Shopee link ต่อได้โดยไม่ต้อง parse
