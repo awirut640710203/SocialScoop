@@ -56,7 +56,7 @@ class _StubYoutubeDL:
 class TestYtdlpCacheReuse:
     def test_download_หลัง_fetch_ใช้แคชไม่ยิงซ้ำ(self, monkeypatch, tmp_path):
         _StubYoutubeDL.calls = []
-        _StubYoutubeDL.extract_result = {"id": "123", "title": "t", "webpage_url": TIKTOK_URL}
+        _StubYoutubeDL.extract_result = {"id": "123", "title": "t", "webpage_url": TIKTOK_URL, "formats": [{"url": "https://cdn.example.com/v.mp4"}]}
         monkeypatch.setattr(downloader.yt_dlp, "YoutubeDL", _StubYoutubeDL)
         (tmp_path / "123.mp4").write_bytes(b"x")
 
@@ -69,17 +69,19 @@ class TestYtdlpCacheReuse:
 
     def test_download_ตรงๆไม่ผ่าน_fetch_ก่อนต้องยิงจริง(self, monkeypatch, tmp_path):
         _StubYoutubeDL.calls = []
-        _StubYoutubeDL.extract_result = {"id": "123", "title": "t", "webpage_url": TIKTOK_URL}
+        _StubYoutubeDL.extract_result = {"id": "123", "title": "t", "webpage_url": TIKTOK_URL, "formats": [{"url": "https://cdn.example.com/v.mp4"}]}
         monkeypatch.setattr(downloader.yt_dlp, "YoutubeDL", _StubYoutubeDL)
         (tmp_path / "123.mp4").write_bytes(b"x")
 
         downloader.download_video(TIKTOK_URL, tmp_path)
 
-        assert _StubYoutubeDL.calls == ["extract_info"], "ไม่มีแคช ต้องยิง extract_info จริง"
+        # ไม่มีแคช: extract_info (เช็กว่ามีวิดีโอมั้ย) แล้ว process_ie_result (โหลดจริง) —
+        # เท่ากับ extract_info(download=True) เดิมทุกประการในแง่จำนวนครั้งที่ยิงไปหาแพลตฟอร์ม
+        assert _StubYoutubeDL.calls == ["extract_info", "process_ie_result"]
 
     def test_แคชหมดอายุกลับไปยิงจริง(self, monkeypatch, tmp_path):
         _StubYoutubeDL.calls = []
-        _StubYoutubeDL.extract_result = {"id": "123", "title": "t", "webpage_url": TIKTOK_URL}
+        _StubYoutubeDL.extract_result = {"id": "123", "title": "t", "webpage_url": TIKTOK_URL, "formats": [{"url": "https://cdn.example.com/v.mp4"}]}
         monkeypatch.setattr(downloader.yt_dlp, "YoutubeDL", _StubYoutubeDL)
         (tmp_path / "123.mp4").write_bytes(b"x")
 
@@ -90,20 +92,20 @@ class TestYtdlpCacheReuse:
 
         downloader.download_video(TIKTOK_URL, tmp_path)
 
-        assert _StubYoutubeDL.calls == ["extract_info", "extract_info"], (
+        assert _StubYoutubeDL.calls == ["extract_info", "extract_info", "process_ie_result"], (
             "แคชหมดอายุแล้วต้องยิงใหม่ ไม่ใช้ของเก่า"
         )
 
     def test_url_คนละอันไม่ใช้แคชร่วมกัน(self, monkeypatch, tmp_path):
         _StubYoutubeDL.calls = []
-        _StubYoutubeDL.extract_result = {"id": "123", "title": "t", "webpage_url": TIKTOK_URL}
+        _StubYoutubeDL.extract_result = {"id": "123", "title": "t", "webpage_url": TIKTOK_URL, "formats": [{"url": "https://cdn.example.com/v.mp4"}]}
         monkeypatch.setattr(downloader.yt_dlp, "YoutubeDL", _StubYoutubeDL)
         (tmp_path / "123.mp4").write_bytes(b"x")
 
         downloader.fetch_metadata(TIKTOK_URL)
         downloader.download_video("https://www.tiktok.com/@other/video/999", tmp_path)
 
-        assert _StubYoutubeDL.calls == ["extract_info", "extract_info"]
+        assert _StubYoutubeDL.calls == ["extract_info", "extract_info", "process_ie_result"]
 
 
 class TestThreadsCacheReuse:
@@ -244,3 +246,61 @@ class TestThreadsImageDownload:
 
         with pytest.raises(downloader.DownloadError, match="ไม่มีวิดีโอหรือรูปภาพ"):
             downloader.download_video(THREADS_URL, tmp_path)
+
+
+class TestYtdlpImageDownload:
+    """Instagram โพสต์รูปภาพล้วน (ไม่มีวิดีโอ) — yt-dlp ปกติจะ error ทันที ต้องแก้ให้
+    โหลดรูปแทนได้ ไม่ใช่พังทั้งที่มีข้อมูลรูปอยู่แล้ว"""
+
+    IMAGE_INFO = {"id": "999", "title": "photo post", "thumbnail": "https://cdn.example.com/photo.jpg"}
+    NO_MEDIA_INFO = {"id": "999", "title": "text only post"}
+
+    def _fake_resp(self, monkeypatch):
+        class FakeResp:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def raise_for_status(self):
+                pass
+
+            def iter_content(self, chunk_size):
+                return [b"image-bytes"]
+
+        monkeypatch.setattr(downloader.requests, "get", lambda *a, **k: FakeResp())
+
+    def test_โพสต์รูปภาพดาวน์โหลดได้เป็น_jpg_ไม่พัง(self, monkeypatch, tmp_path):
+        _StubYoutubeDL.calls = []
+        _StubYoutubeDL.extract_result = self.IMAGE_INFO
+        monkeypatch.setattr(downloader.yt_dlp, "YoutubeDL", _StubYoutubeDL)
+        self._fake_resp(monkeypatch)
+
+        result = downloader.download_video("https://www.instagram.com/p/abc/", tmp_path)
+
+        assert result["filename"] == "999.jpg"
+        assert (tmp_path / "999.jpg").read_bytes() == b"image-bytes"
+        assert result["details"]["media_type"] == "image"
+        # ต้องไม่ไปเรียก process_ie_result (ขั้นดาวน์โหลดวิดีโอของ yt-dlp) เลยสำหรับโพสต์รูป
+        assert "process_ie_result" not in _StubYoutubeDL.calls
+
+    def test_ใช้แคชจาก_fetch_ก่อนหน้าได้ไม่ต้องยิงซ้ำ(self, monkeypatch, tmp_path):
+        _StubYoutubeDL.calls = []
+        _StubYoutubeDL.extract_result = self.IMAGE_INFO
+        monkeypatch.setattr(downloader.yt_dlp, "YoutubeDL", _StubYoutubeDL)
+        self._fake_resp(monkeypatch)
+
+        downloader.fetch_metadata("https://www.instagram.com/p/abc/")
+        downloader.download_video("https://www.instagram.com/p/abc/", tmp_path)
+
+        assert _StubYoutubeDL.calls == ["extract_info"], "แคชแล้วไม่ควรยิง extract_info ซ้ำรอบสอง"
+
+    def test_ไม่มีสื่อเลยแจ้ง_error_ชัดเจน(self, monkeypatch, tmp_path):
+        _StubYoutubeDL.calls = []
+        _StubYoutubeDL.extract_result = self.NO_MEDIA_INFO
+        monkeypatch.setattr(downloader.yt_dlp, "YoutubeDL", _StubYoutubeDL)
+        self._fake_resp(monkeypatch)
+
+        with pytest.raises(downloader.DownloadError, match="ไม่มีวิดีโอหรือรูปภาพ"):
+            downloader.download_video("https://www.instagram.com/p/abc/", tmp_path)

@@ -179,7 +179,11 @@ def fetch_metadata(url: str) -> dict:
     # getcomments: True เผื่อลิงก์สินค้าถูกแปะไว้ในคอมเมนต์แทนแคปชั่น (ดู extract.build_details)
     # วัดจริงแล้วกับ Instagram เพิ่มเวลาแค่ ~0.17s เพราะเป็น API call เดียวจบ ไม่ paginate ต่อ
     # TikTok extractor ไม่รองรับตัวเลือกนี้เลย — ใส่ไปก็แค่เฉยๆ ไม่มีผลอะไร ไม่พัง
-    opts = _build_opts({"skip_download": True, "getcomments": True})
+    #
+    # ignore_no_formats_error: True — ปกติ yt-dlp จะโยน error ทันทีถ้าโพสต์ไม่มีวิดีโอเลย
+    # (Instagram โพสต์รูปภาพล้วนก็เจอแบบนี้) ทั้งที่ดึงแคปชั่น/รูปมาได้ปกติ ใส่ flag นี้
+    # เพื่อให้ยังได้ข้อมูลกลับมา แล้วเราตัดสินใจเองว่าจะโหลดวิดีโอหรือรูปตอน download_video()
+    opts = _build_opts({"skip_download": True, "getcomments": True, "ignore_no_formats_error": True})
 
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
@@ -245,8 +249,40 @@ def _download_threads_media(url: str, output_dir: Path) -> dict:
     }
 
 
+def _download_ytdlp_image(info: dict, output_dir: Path) -> dict:
+    """โพสต์ไม่มีวิดีโอเลย (เช่น Instagram โพสต์รูปภาพล้วน) — โหลดรูปคุณภาพดีที่สุดแทน
+
+    yt-dlp เองดาวน์โหลดรูปให้ไม่ได้ (fatal ทันทีถ้าไม่มี format วิดีโอ ต่อให้ตั้ง
+    ignore_no_formats_error ไว้ก็ตาม — flag นั้นกันแค่ตอน extract ไม่กันตอน download จริง)
+    จึงต้องดาวน์โหลดเอง เหมือนที่ทำกับ Threads โพสต์รูปภาพ
+    """
+    image_url = info.get("thumbnail")
+    if not image_url:
+        raise DownloadError("โพสต์นี้ไม่มีวิดีโอหรือรูปภาพให้ดาวน์โหลด")
+
+    video_id = info.get("id") or "socialscoop"
+    image_path = output_dir / f"{video_id}.jpg"
+
+    try:
+        with requests.get(image_url, stream=True, timeout=60) as resp:
+            resp.raise_for_status()
+            with open(image_path, "wb") as f:
+                for chunk in resp.iter_content(chunk_size=1 << 16):
+                    f.write(chunk)
+    except requests.RequestException as exc:
+        image_path.unlink(missing_ok=True)
+        raise DownloadError(f"โหลดไฟล์รูปภาพไม่สำเร็จ: {exc}") from exc
+
+    return {
+        "video_path": str(image_path),
+        "filename": image_path.name,
+        "details": build_details(info),
+    }
+
+
 def download_video(url: str, output_dir: Path | str = DOWNLOAD_DIR) -> dict:
-    """ดาวน์โหลดวิดีโอคุณภาพสูงสุดเท่าที่โพสต์นั้นมี พร้อมไฟล์คำบรรยายและข้อมูลกำกับ
+    """ดาวน์โหลดวิดีโอ (หรือรูปภาพถ้าโพสต์ไม่มีวิดีโอ) คุณภาพสูงสุดเท่าที่โพสต์นั้นมี
+    พร้อมไฟล์คำบรรยายและข้อมูลกำกับ
 
     Returns: {"video_path": str, "filename": str, "details": dict}
     Raises: DownloadError ถ้าดาวน์โหลดไม่สำเร็จ
@@ -257,6 +293,36 @@ def download_video(url: str, output_dir: Path | str = DOWNLOAD_DIR) -> dict:
     if detect_platform(url) == "threads":
         return _download_threads_media(url, output_dir)
 
+    # ถ้าเพิ่งดึงรายละเอียดโพสต์นี้ไปหมาดๆ (ผู้ใช้กด "ดึงข้อมูล" ก่อนแล้วค่อยกด
+    # "ดาวน์โหลด") ใช้ info ที่มีอยู่แล้วแทนการดึงหน้าเว็บซ้ำอีกรอบ — เร็วขึ้นมาก และลด
+    # จำนวนครั้งที่โดน anti-bot ตรวจจับด้วย (ทดสอบแล้วว่าไฟล์ที่ได้ตรงกับดาวน์โหลดสด
+    # ทุกกรณี — ดูรายละเอียดใน commit message) ถ้าไม่มีแคชก็ extract แบบไม่โหลดไฟล์ก่อน
+    # เพื่อเช็กว่าโพสต์นี้มีวิดีโอมั้ย (ต้องรู้ก่อนตัดสินใจว่าจะโหลดวิดีโอหรือรูป)
+    cached = _cache_get(url)
+    info = cached["info"] if cached and cached["kind"] == "ytdlp" else None
+
+    if info is None:
+        fetch_opts = _build_opts({"skip_download": True, "ignore_no_formats_error": True})
+        try:
+            with yt_dlp.YoutubeDL(fetch_opts) as ydl:
+                info = ydl.extract_info(url, download=False)
+        except yt_dlp.utils.DownloadError as exc:
+            raise DownloadError(_friendly_error(exc)) from exc
+        except Exception as exc:  # noqa: BLE001
+            raise DownloadError(_friendly_error(exc)) from exc
+
+        if info is None:
+            raise DownloadError("ไม่ได้รับข้อมูลจากลิงก์นี้")
+        if info.get("_type") == "playlist":
+            entries = [e for e in (info.get("entries") or []) if e]
+            if not entries:
+                raise DownloadError("ลิงก์นี้ไม่มีวิดีโออยู่ข้างใน")
+            info = entries[0]
+        _cache_set(url, {"kind": "ytdlp", "info": info})
+
+    if not info.get("formats"):
+        return _download_ytdlp_image(info, output_dir)
+
     opts = _build_opts({
         "format": FORMAT_SPEC,
         "merge_output_format": "mp4",
@@ -266,25 +332,9 @@ def download_video(url: str, output_dir: Path | str = DOWNLOAD_DIR) -> dict:
         "restrictfilenames": True,
     })
 
-    # ถ้าเพิ่งดึงรายละเอียดโพสต์นี้ไปหมาดๆ (ผู้ใช้กด "ดึงข้อมูล" ก่อนแล้วค่อยกด
-    # "ดาวน์โหลด") ใช้ info ที่มีอยู่แล้วแทนการดึงหน้าเว็บซ้ำอีกรอบ — process_ie_result
-    # จะข้ามขั้นตอนขอหน้าเว็บ+แก้ anti-bot challenge ไปเลย ยิงตรงไปที่ URL ไฟล์วิดีโอ
-    # ที่ resolve ไว้แล้ว เร็วขึ้นมาก และลดจำนวนครั้งที่โดน anti-bot ตรวจจับด้วย
-    # (ทดสอบแล้วว่าไฟล์ที่ได้ตรงกับดาวน์โหลดสดทุกกรณี — ดูรายละเอียดใน commit message)
-    cached = _cache_get(url)
-    cached_info = cached["info"] if cached and cached["kind"] == "ytdlp" else None
-
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
-            if cached_info is not None:
-                info = ydl.process_ie_result(cached_info, download=True)
-            else:
-                info = ydl.extract_info(url, download=True)
-            if info.get("_type") == "playlist":
-                entries = [e for e in (info.get("entries") or []) if e]
-                if not entries:
-                    raise DownloadError("ลิงก์นี้ไม่มีวิดีโออยู่ข้างใน")
-                info = entries[0]
+            info = ydl.process_ie_result(info, download=True)
             video_path = Path(ydl.prepare_filename(info))
     except DownloadError:
         raise

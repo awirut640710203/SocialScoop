@@ -320,9 +320,13 @@
       row.appendChild(label);
 
       var wrap = el("div", "detail-value");
-      wrap.appendChild(el("div", "detail-value mono", link));
+      var linkAnchor = el("a", "detail-value mono", link);
+      linkAnchor.href = link;
+      linkAnchor.target = "_blank";
+      linkAnchor.rel = "noopener noreferrer";
+      wrap.appendChild(linkAnchor);
       wrap.appendChild(el("div", "hint",
-        "พบในคำบรรยาย — คัดลอกไปเปิดหน้าสินค้าจริงบน Shopee แล้วสร้างลิงก์ affiliate ของคุณเองจากหน้านั้น"));
+        "พบในคำบรรยาย — แตะเพื่อเปิด Shopee (เปิดแอปถ้าติดตั้งไว้) แล้วสร้างลิงก์ affiliate ของคุณเองจากหน้าสินค้านั้น"));
       row.appendChild(wrap);
 
       row.appendChild(copyButton(link, "คัดลอกลิงก์ Shopee"));

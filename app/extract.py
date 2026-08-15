@@ -116,6 +116,18 @@ def format_count(value: int | None) -> str | None:
     return f"{value / 1_000_000:.1f}".rstrip("0").rstrip(".") + "M"
 
 
+def media_type(info: dict) -> str | None:
+    """"video" ถ้ามีวิดีโอให้โหลด, "image" ถ้ามีแต่รูป (เช่น Instagram โพสต์รูปภาพล้วน),
+    None ถ้าไม่มีสื่อให้โหลดเลย — frontend ใช้ค่านี้ตัดสินใจว่าจะโชว์ปุ่ม
+    "ดาวน์โหลดวิดีโอ" หรือ "ดาวน์โหลดรูปภาพ" (เหมือนที่ threads_extractor.media_type ทำ)
+    """
+    if info.get("formats"):
+        return "video"
+    if info.get("thumbnail"):
+        return "image"
+    return None
+
+
 def build_details(info: dict) -> dict:
     """ประกอบข้อมูลดิบจาก yt-dlp ให้เป็นโครงสร้างที่หน้าเว็บใช้ได้ตรง ๆ
 
@@ -150,6 +162,7 @@ def build_details(info: dict) -> dict:
             "view": format_count(info.get("view_count")),
         },
         "resolution": _describe_resolution(info),
+        "media_type": media_type(info),
     }
 
 

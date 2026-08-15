@@ -7,6 +7,7 @@ from app.extract import (
     detect_platform,
     find_shopee_links,
     format_count,
+    media_type,
     parse_hashtags,
 )
 
@@ -166,6 +167,31 @@ class TestBuildDetails:
         # TikTok extractor ไม่รองรับ getcomments เลย — info จะไม่มีคีย์ comments
         details = build_details({"title": "x", "description": "y"})
         assert details["shopee_links"] == []
+
+    def test_มี_formats_media_type_เป็น_video(self):
+        details = build_details({"title": "x", "formats": [{"url": "https://cdn.example.com/v.mp4"}]})
+        assert details["media_type"] == "video"
+
+    def test_ไม่มี_formats_แต่มี_thumbnail_media_type_เป็น_image(self):
+        # Instagram โพสต์รูปภาพล้วน — yt-dlp คืนข้อมูลมาได้ (ด้วย ignore_no_formats_error)
+        # แต่ formats จะว่างเปล่าเพราะไม่มีวิดีโอ
+        details = build_details({"title": "x", "thumbnail": "https://cdn.example.com/p.jpg"})
+        assert details["media_type"] == "image"
+
+    def test_ไม่มีทั้งวิดีโอและรูปคืน_none(self):
+        details = build_details({"title": "x"})
+        assert details["media_type"] is None
+
+
+class TestMediaType:
+    def test_มี_formats_คืน_video(self):
+        assert media_type({"formats": [{"url": "x"}]}) == "video"
+
+    def test_ไม่มี_formats_แต่มี_thumbnail_คืน_image(self):
+        assert media_type({"thumbnail": "https://cdn.example.com/p.jpg"}) == "image"
+
+    def test_ไม่มีอะไรเลยคืน_none(self):
+        assert media_type({}) is None
 
     def test_คลิปแนวตั้ง_1080x1920_ต้องอ่านว่า_1080p(self):
         # กันบั๊กเดิม: เคยรายงานเป็น "1920p" เพราะดูแต่ความสูง

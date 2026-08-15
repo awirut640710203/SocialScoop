@@ -438,6 +438,17 @@ main {
   width: 86px;
 }
 .detail-row.affiliate .detail-label svg { width: 14px; height: 14px; flex: none; }
+/* ลิงก์ Shopee ต้องแตะเปิดได้จริง (ไม่ใช่แค่ข้อความให้อ่าน) แต่ยังต้องกลืนกับสี
+   ของแถวไฮไลต์ ไม่ใช่สีน้ำเงินขีดเส้นใต้แบบลิงก์เว็บทั่วไปที่ browser ใส่มาให้เอง */
+.detail-row.affiliate a.detail-value {
+  color: var(--teal);
+  text-decoration: none;
+  display: block;
+}
+.detail-row.affiliate a.detail-value:hover,
+.detail-row.affiliate a.detail-value:focus-visible {
+  text-decoration: underline;
+}
 .hint { font-size: 11.5px; color: var(--muted); margin-top: 3px; line-height: 1.5; overflow-wrap: anywhere; }
 
 .tag-chips { display: flex; flex-wrap: wrap; gap: 6px; }
