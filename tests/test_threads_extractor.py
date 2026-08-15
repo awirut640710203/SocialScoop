@@ -78,28 +78,17 @@ class TestResolveShortcode:
             resolve_shortcode("https://www.threads.com/share/x/", "https://www.threads.com/login")
 
 
-class TestRedirectedAwayFromPost:
+class TestShouldRetryPageLoad:
     def test_เด้งออกจากโพสต์(self):
-        assert te._redirected_away_from_post(
-            "https://www.threads.com/@zuck/post/ABC", "https://www.threads.com/login?next=x"
-        ) is True
+        assert te._should_retry_page_load("https://www.threads.com/login?next=x") is True
 
     def test_อยู่ที่โพสต์ตามปกติ(self):
-        assert te._redirected_away_from_post(
-            "https://www.threads.com/@zuck/post/ABC", "https://www.threads.com/@zuck/post/ABC"
-        ) is False
+        assert te._should_retry_page_load("https://www.threads.com/@zuck/post/ABC") is False
 
-    def test_ลิงก์แชร์ที่_redirect_ไปโพสต์ไม่นับว่าเด้งออก(self):
-        assert te._redirected_away_from_post(
-            "https://www.threads.com/share/x/", "https://www.threads.com/@u/post/ABC"
-        ) is False
-
-    def test_ลิงก์แชร์ที่ไปไม่ถึงโพสต์ก็ไม่เข้าเงื่อนไขลองใหม่(self):
-        # ลิงก์เดิมไม่มี /post/ อยู่แล้ว แยกไม่ออกว่าเป็นอาการชั่วคราวหรือลิงก์ผิดจริง
-        assert te._redirected_away_from_post(
-            "https://www.threads.com/share/x/", "https://www.threads.com/login"
-        ) is False
-
+    def test_ลิงก์แชร์ที่ยังไปไม่ถึงโพสต์ต้องได้ลองใหม่ด้วย(self):
+        # เจอจริงบน production: ลิงก์แชร์พึ่ง redirect เพื่อหา shortcode จึงเสียหาย
+        # หนักที่สุดเวลาโดนเด้ง ถ้าไม่ให้ลองใหม่จะพังทันทีโดยไม่มีโอกาสแก้ตัว
+        assert te._should_retry_page_load("https://www.threads.com/login") is True
 
 class TestFetchNodeRetry:
     """โดนเด้งไปหน้าล็อกอินต้องลองใหม่ให้เองอีกครั้งเดียว"""
@@ -141,6 +130,17 @@ class TestFetchNodeRetry:
         calls = self._install(monkeypatch, [blocked_but_has_data])
 
         node = te.fetch_node("https://www.threads.com/@u/post/DJDNCztRGb1")
+
+        assert node["code"] == "DJDNCztRGb1"
+        assert len(calls) == 2
+
+    def test_ลิงก์แชร์โดนเด้งแล้วลองใหม่สำเร็จ(self, monkeypatch):
+        # กรณีที่พังจริงบน production — ลิงก์แชร์ไม่มี /post/ ในตัวเอง ต้องพึ่ง redirect
+        good = (_wrap_in_page(SAMPLE_NODE), "https://www.threads.com/@u/post/DJDNCztRGb1")
+        blocked = ("<html></html>", "https://www.threads.com/login")
+        calls = self._install(monkeypatch, [blocked, good])
+
+        node = te.fetch_node("https://www.threads.com/share/_gPhmX3c8/")
 
         assert node["code"] == "DJDNCztRGb1"
         assert len(calls) == 2

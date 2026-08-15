@@ -67,13 +67,22 @@ def resolve_shortcode(original_url: str, final_url: str) -> str:
     return shortcode_from_url(final_url)
 
 
-def _redirected_away_from_post(original_url: str, final_url: str) -> bool:
-    """True เมื่อลิงก์เดิมชี้ไปที่โพสต์ แต่ปลายทางหลุดออกไปที่อื่น (มักคือหน้าล็อกอิน)
+def _should_retry_page_load(final_url: str) -> bool:
+    """True เมื่อปลายทางไม่ได้อยู่ที่หน้าโพสต์ (มักคือโดนเด้งไปหน้าล็อกอิน)
 
     ใช้เป็นสัญญาณว่า Threads ไม่ยอมเสิร์ฟหน้าโพสต์ให้รอบนี้ ซึ่งเป็นอาการชั่วคราว
-    ไม่ใช่โพสต์ถูกลบ — ต่างกันตรงที่โพสต์ถูกลบจะไม่ redirect ออกจาก /post/
+    เจอบ่อยเป็นพิเศษเมื่อยิงจาก IP ของคลาวด์อย่าง Render (ลิงก์เดียวกันที่ผ่านฉลุย
+    บนเครื่องบ้านกลับพังบน production)
+
+    ดูที่ปลายทางอย่างเดียวโดยตั้งใจ ไม่สนว่าลิงก์ต้นทางหน้าตาเป็นยังไง เพราะ
+    ลิงก์แชร์ (threads.com/share/xxxxx/) ต้องพึ่ง redirect เพื่อหา shortcode
+    จึงเป็นกรณีที่เสียหายหนักที่สุดเวลาโดนเด้ง — ถ้าไปยกเว้นมันไว้ ลิงก์แชร์จะพัง
+    ทันทีโดยไม่มีโอกาสแก้ตัวเลย (เจอจริงบน production มาแล้ว)
+
+    โพสต์ที่ถูกลบจริงจะยังคงอยู่ที่ URL ที่มี /post/ จึงไม่เข้าเงื่อนไขนี้
+    ไม่ต้องเสียเวลาเปิดหน้าซ้ำให้เปล่าประโยชน์
     """
-    return bool(_POST_ID_RE.search(original_url)) and not _POST_ID_RE.search(final_url)
+    return not _POST_ID_RE.search(final_url)
 
 
 def _find_post_nodes(obj: Any, results: list) -> None:
@@ -385,10 +394,9 @@ def fetch_node(url: str) -> dict:
     """
     html, final_url = fetch_page_html(url)
 
-    # โดนเด้งออกจากหน้าโพสต์ = Threads ไม่ยอมเสิร์ฟรอบนี้ ลองใหม่อีกครั้งเดียว
-    # (วัดจริงบน production: ยิงซ้ำหลังพลาดแล้วสำเร็จทุกครั้ง) เงื่อนไขนี้แคบมากโดยตั้งใจ
-    # โพสต์ที่ถูกลบจริงจะไม่เข้าเงื่อนไขนี้ จึงไม่ต้องเสียเวลาเปิดหน้าซ้ำให้เปล่าประโยชน์
-    if _redirected_away_from_post(url, final_url):
+    # ไม่ได้จบที่หน้าโพสต์ = Threads ไม่ยอมเสิร์ฟรอบนี้ ลองใหม่อีกครั้งเดียว
+    # (วัดจริงบน production: ยิงซ้ำหลังพลาดแล้วสำเร็จทุกครั้ง)
+    if _should_retry_page_load(final_url):
         html, final_url = fetch_page_html(url)
 
     shortcode = resolve_shortcode(url, final_url)
