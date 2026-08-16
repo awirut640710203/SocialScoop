@@ -12,6 +12,7 @@
   var form = $("fetch-form");
   var urlInput = $("url-input");
   var fetchBtn = $("fetch-btn");
+  var clearBtn = $("clear-btn");
   var chipRow = $("chip-row");
   var formError = $("form-error");
   var skeleton = $("skeleton");
@@ -182,7 +183,57 @@
       chip.classList.toggle("on", chip.dataset.platform === platform);
     });
   }
-  urlInput.addEventListener("input", updateChips);
+
+  /* ---------- ช่องวางลิงก์: วางลิงก์ใหม่ทับได้เลย ไม่ต้องลบของเก่าทิ้งก่อน ---------- */
+  function syncClearBtn() {
+    clearBtn.hidden = urlInput.value.length === 0;
+  }
+
+  urlInput.addEventListener("input", function () {
+    updateChips();
+    syncClearBtn();
+  });
+
+  // แตะเข้ามาครั้งแรก = เลือกลิงก์เก่าทั้งเส้นให้เลย พิมพ์หรือวางทับได้ทันที
+  var selectAllOnClick = false;
+  urlInput.addEventListener("focus", function () {
+    if (!urlInput.value) return;
+    selectAllOnClick = true;
+    urlInput.select();
+  });
+  urlInput.addEventListener("mouseup", function (event) {
+    // ปกติเบราว์เซอร์จะยกเลิก selection ทิ้งทันทีหลัง focus ต้องกันไว้ตรงนี้
+    // กันเฉพาะคลิกแรกเท่านั้น คลิกครั้งต่อไปยังวางเคอร์เซอร์แก้กลางลิงก์ได้ตามปกติ
+    if (!selectAllOnClick) return;
+    event.preventDefault();
+    selectAllOnClick = false;
+  });
+  urlInput.addEventListener("blur", function () { selectAllOnClick = false; });
+
+  clearBtn.addEventListener("click", function () {
+    urlInput.value = "";
+    updateChips();
+    syncClearBtn();
+    setError(null);
+    urlInput.focus();
+  });
+
+  // วางลิงก์ที่รองรับ = ดึงข้อมูลให้เลย ไม่ต้องกดปุ่มซ้ำอีกที
+  // เช็กก่อนว่าเป็นลิงก์ที่รองรับจริงถึงจะยิง กันกรณีวางข้อความมั่วแล้วเสียเที่ยวเปล่า
+  urlInput.addEventListener("paste", function (event) {
+    var clip = event.clipboardData || window.clipboardData;
+    if (!clip) return;
+
+    var text = "";
+    try { text = (clip.getData("text") || "").trim(); } catch (e) { return; }
+    if (!text || !detectPlatform(text)) return;
+
+    event.preventDefault();
+    urlInput.value = text;
+    updateChips();
+    syncClearBtn();
+    requestFetch();
+  });
 
   /* ---------- เรียก API ---------- */
   function postJSON(path, body) {
@@ -219,6 +270,10 @@
 
   form.addEventListener("submit", function (event) {
     event.preventDefault();
+    requestFetch();
+  });
+
+  function requestFetch() {
     var url = urlInput.value.trim();
     if (!url) return;
 
@@ -236,7 +291,7 @@
         resultEl.hidden = true;
       })
       .finally(function () { setLoading(false); });
-  });
+  }
 
   /* ---------- แสดงผลลัพธ์ ---------- */
   function detailRow(label, valueNode, copySource, ariaLabel) {

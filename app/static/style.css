@@ -215,6 +215,32 @@ main {
 }
 .paste-bar input::placeholder { color: var(--muted); }
 
+/* ปุ่มล้างลิงก์ในช่อง — โผล่เฉพาะตอนมีข้อความ */
+.clear-btn {
+  flex: none;
+  align-self: center;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: none;
+  border-radius: 50%;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  transition: background 150ms ease, color 150ms ease;
+}
+.clear-btn svg { width: 16px; height: 16px; }
+@media (hover: hover) {
+  .clear-btn:hover { background: var(--line); color: var(--ink); }
+}
+/* จอสัมผัสต้องมีพื้นที่กดอย่างน้อย 44px ตามเกณฑ์การเข้าถึง ไม่งั้นกดพลาดง่าย */
+@media (pointer: coarse) {
+  .clear-btn { width: 44px; height: 44px; }
+}
+/* ต้องประกาศทีหลัง display: grid ไม่งั้น [hidden] ของเบราว์เซอร์แพ้ specificity แล้วปุ่มไม่ยอมซ่อน */
+.clear-btn[hidden] { display: none; }
+
 .btn-primary {
   position: relative;
   background: var(--coral);

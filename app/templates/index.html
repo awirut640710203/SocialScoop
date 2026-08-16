@@ -41,14 +41,24 @@
 
       <form id="fetch-form" class="paste-bar" autocomplete="off">
         <label class="visually-hidden" for="url-input">ลิงก์ของโพสต์</label>
+        <!-- ปิด autocapitalize/autocorrect/spellcheck: ลิงก์ไม่ใช่ประโยค คีย์บอร์ดมือถือ
+             ชอบขึ้นตัวใหญ่ให้ตัวแรกแล้วลิงก์เพี้ยน enterkeyhint=go ให้ปุ่ม Enter บนมือถือ
+             เขียนว่า "ไป" แทน "ขึ้นบรรทัดใหม่" -->
         <input
           id="url-input"
           name="url"
           type="url"
           inputmode="url"
+          enterkeyhint="go"
+          autocapitalize="off"
+          autocorrect="off"
+          spellcheck="false"
           placeholder="วางลิงก์ของโพสต์ที่นี่"
           required
         />
+        <button type="button" class="clear-btn" id="clear-btn" aria-label="ล้างลิงก์" title="ล้างลิงก์" hidden>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+        </button>
         <button type="submit" class="btn-primary" id="fetch-btn">
           <span class="btn-label">ดึงข้อมูล</span>
           <span class="spinner" aria-hidden="true"></span>
